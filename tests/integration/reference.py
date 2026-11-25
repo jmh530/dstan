@@ -35,4 +35,15 @@ for save_warmup, rows, suffix in [(False, 4000, ""), (True, 5000, ".warmup")]:
     assert reference.data.shape == (2, rows, 8)
     draws = np.fromfile(f"{prefix}.{mode}{suffix}", dtype=np.float64).reshape(reference.data.shape)
     np.testing.assert_allclose(draws, reference.data, rtol=1e-10, atol=1e-10)
-print(f"{mode}: both chains match Python with and without saved warmup")
+for suffix, inits, radius in [
+    ("initialized", [{"theta": -2}, {"theta": 2}], 0.75),
+    ("zero-radius", "{}", 0.0),
+]:
+    reference = model.sample(
+        '{"mu":2.5}', num_chains=2, id=1, seed=321, num_warmup=100,
+        num_samples=20, num_threads=threads, save_warmup=True,
+        inits=inits, init_radius=radius,
+    )
+    draws = np.fromfile(f"{prefix}.{mode}.{suffix}", dtype=np.float64).reshape(2, 120, 8)
+    np.testing.assert_allclose(draws, reference.data, rtol=1e-10, atol=1e-10)
+print(f"{mode}: both chains match Python for default, per-chain, and zero-radius initialization")

@@ -89,6 +89,35 @@ private void checkChains(ref Model model, int threads)
     assert(model.sampleInto(guarded[1 .. $-1], options) == full.values.length);
     assert(guarded[1 .. $-1] == full.values && guarded[0] == -123 && guarded[$-1] == -123);
     if (prefix.length) write(prefix ~ suffix ~ ".warmup", full.values);
+
+    options.warmup = 100;
+    options.draws = 20;
+    options.initialValues = [`{"theta":-2}`, `{"theta":2}`];
+    options.initRadius = 0.75;
+    auto initialized = model.sample(options);
+    assert(initialized.shape == [2, 120, 8]);
+    if (prefix.length) write(prefix ~ suffix ~ ".initialized", initialized.values);
+    options.initialValues = [`{"theta":-2}`];
+    auto sharedInit = model.sample(options);
+    options.initialValues = [`{"theta":-2}`, `{"theta":-2}`];
+    assert(sharedInit.values == model.sample(options).values);
+    // theta is unconstrained, so radius zero should reproduce an explicit zero start.
+    options.initRadius = 0;
+    options.initialValues = ["{}"];
+    auto zero = model.sample(options);
+    options.initialValues = [`{"theta":0}`];
+    assert(zero.values == model.sample(options).values);
+    if (prefix.length) write(prefix ~ suffix ~ ".zero-radius", zero.values);
+    options.initialValues = [`{broken}`];
+    assertThrown!StanException(model.sample(options));
+    options.initialValues = ["{}", "{}", "{}"];
+    assertThrown(model.requiredCount(options));
+    options.initialValues = null;
+    foreach (invalid; [-1.0, double.nan, double.infinity])
+    {
+        options.initRadius = invalid;
+        assertThrown(model.requiredCount(options));
+    }
 }
 
 void main(string[] args)
