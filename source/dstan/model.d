@@ -16,6 +16,9 @@ struct SampleOptions
     int threads = 1;     /// Requested Stan thread-pool size. Set on first use; -1 requests available cores.
     bool saveWarmup = false;  /// Keep warmup rows at the beginning of each chain.
 
+    const(string)[] initialValues; /// In-memory JSON objects on the constrained scale. Supply zero, one shared object, or one per chain.
+    double initRadius = 2.0;       /// Finite nonnegative radius for unspecified coordinates on the unconstrained scale.
+
     private int savedWarmup() const @safe pure nothrow @nogc
     {
         return saveWarmup ? warmup : 0;
@@ -27,6 +30,40 @@ struct SampleOptions
             throw new Exception("Invalid iteration count");
         return savedWarmup() + draws;
     }
+}
+
+private string checkedJsonObject(string json) @safe
+{
+    json = json.strip;
+    if (!json.length || json[0] != '{' || json[$-1] != '}' || json.hasNul)
+        throw new Exception("Expected an in-memory JSON object");
+    return json;
+}
+
+// TinyStan parses each object itself. Its delimiter must never occur as a
+// literal byte inside one object, even for a shared initialization.
+private string encodeInitialValues(const(string)[] values, char separator) @safe
+{
+    import std.array : join;
+    import std.string : indexOf;
+
+    foreach (value; values)
+    {
+        checkedJsonObject(value);
+        if (value.indexOf(separator) >= 0)
+            throw new Exception("TinyStan separator in an initial-value object");
+    }
+    if (values.length == 1) return values[0];
+    return values.join([separator]);
+}
+
+unittest
+{
+    import std.exception : assertThrown;
+    enum sep = '\x1c';
+    assert(encodeInitialValues(["{}", " {} "], sep) == "{}\x1c {} ");
+    foreach (invalid; ["", "init.json", "[]", "{\0}", "{}\x1c{}"])
+        assertThrown(encodeInitialValues([invalid], sep));
 }
 
 /// TinyStan status translated into D-owned exception data.
@@ -57,9 +94,7 @@ struct Model
     */
     this(string library, string json = "{}", uint seed = 1, string[] dependencyDirs = null)
     {
-        json = json.strip;
-        if (!json.length || json[0] != '{' || json[$-1] != '}' || json.hasNul)
-            throw new Exception("Expected an in-memory JSON object");
+        json = checkedJsonObject(json);
         synchronized { lib.open(library, dependencyDirs); }
         scope(failure) close();
         TinyStanError* error;
@@ -97,6 +132,11 @@ struct Model
     size_t requiredCount(SampleOptions options = SampleOptions.init) const @safe
     {
         if (!handle) throw new Exception("Closed Stan model");
+        import std.math : isFinite;
+        if (!isFinite(options.initRadius) || options.initRadius < 0)
+            throw new Exception("Initialization radius must be finite and nonnegative");
+        if (options.initialValues.length > 1 && options.initialValues.length != options.chains)
+            throw new Exception("Supply zero initial-value objects, one shared object, or one per chain");
         if (options.threads == 0 || options.threads < -1) throw new Exception("Invalid Stan thread count");
         return checkedCount(options.chains, options.savedRows(), columns.length);
     }
@@ -141,10 +181,19 @@ struct Model
     private void runSampler(scope double[] output, SampleOptions options) @trusted
     {
         import core.memory : GC;
-        // Keep the slice pointer visible even while workers hold it in C++ memory.
-        auto storage = output.ptr;
-        GC.addRange(&storage, storage.sizeof);
-        scope(exit) GC.removeRange(&storage);
+        // Root both borrowed buffers for the synchronous call. TinyStan copies
+        // the input into its per-chain contexts and releases the output writers.
+        struct Buffers
+        {
+            double* output;
+            const(char)* inits;
+        }
+        Buffers buffers;
+        buffers.output = output.ptr;
+        if (options.initialValues.length)
+            buffers.inits = encodeInitialValues(options.initialValues, lib.separator).toStringz;
+        GC.addRange(&buffers, buffers.sizeof);
+        scope(exit) GC.removeRange(&buffers);
         TinyStanError* error;
         int status;
         // Upstream installs process-wide interrupt handlers. All DStan calls share this lock.
@@ -153,10 +202,10 @@ struct Model
             version (Windows)
                 if (options.chains > 1 || options.threads != 1)
                     lib.retainSamplingRuntime();
-            status = lib.sample(handle, options.chains, null, options.seed, 1, 2.0,
+            status = lib.sample(handle, options.chains, buffers.inits, options.seed, 1, options.initRadius,
                 options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
                 0.75, 10, 75, 50, 25, options.saveWarmup, 1.0, 0, 10, 0, options.threads,
-                storage, output.length, null, null, &error);
+                buffers.output, output.length, null, null, &error);
         }
         if (status || error) fail(error, "TinyStan sampling failed");
     }

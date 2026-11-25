@@ -23,6 +23,7 @@ package(dstan) struct Library
     @disable this(this);
     private void* handle;
     int[3] stanVersion;
+    char separator;
     alias Fn(alias f) = typeof(&f);
     Fn!tinystan_create_model create;
     Fn!tinystan_destroy_model destroy;
@@ -106,6 +107,8 @@ package(dstan) struct Library
         if (api != [0, 3, 3]) throw new Exception(format("Expected TinyStan 0.3.3, got %d.%d.%d", api[0], api[1], api[2]));
         versionFn = resolve!(Fn!tinystan_stan_version)("tinystan_stan_version");
         versionFn(&stanVersion[0], &stanVersion[1], &stanVersion[2]);
+        auto separatorFn = resolve!(Fn!tinystan_separator_char)("tinystan_separator_char");
+        separator = cast(char) separatorFn();
         create = resolve!(typeof(create))("tinystan_create_model");
         destroy = resolve!(typeof(destroy))("tinystan_destroy_model");
         names = resolve!(typeof(names))("tinystan_model_param_names");

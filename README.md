@@ -21,6 +21,15 @@ Chains and threads both default to one. Chain IDs start at one. Set the desired 
 
 Set `settings.saveWarmup = true` to include warmup draws. Within each chain, `fit.savedWarmup` is the index of the first posterior row. With 1,000 warmup iterations and the settings above, the shape is `[2, 5000, 8]` and posterior rows start at index 1,000.
 
+Set `settings.initialValues` to an array of in-memory JSON objects containing constrained parameter values. An empty array uses Stan's default initialization, one object applies to every chain, and one object per chain selects distinct starts in chain order. For the two-chain example:
+
+```d
+settings.initialValues = [`{"theta":-2}`, `{"theta":2}`];
+auto initialized = model.sample(settings);
+```
+
+`settings.initRadius` defaults to 2.0. It controls random initialization of unspecified coordinates on the unconstrained scale. Set it to zero to initialize those coordinates at zero.
+
 To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass the slice to `model.sampleInto(buffer, settings)`. The returned count is measured in doubles. To reuse a compiled model, pass the path to its `_model.so` directly to `Model`. Model construction and sampling have separate seeds. The defaults use seed one for each.
 
 ## Build and run on Linux

@@ -53,7 +53,18 @@ private void checkSampling(string[] paths)
     SampleOptions options;
     options.draws = 1;
     options.chains = 2;
-    enforce(model.sample(options)[0, 0, 0] == 2, "Wrong C ABI chain count");
+    auto defaults = model.sample(options);
+    enforce(defaults[0, 0, 0] == 2, "Wrong C ABI chain count");
+    enforce(defaults[0, 0, 2] == 2 && defaults[0, 0, 3] == 0, "Wrong default initialization");
+    options.initialValues = [`{"theta":-2}`];
+    options.initRadius = 0;
+    auto sharedInit = model.sample(options);
+    enforce(sharedInit[0, 0, 2] == 0 && sharedInit[0, 0, 3] == 1, "Wrong shared initialization");
+    options.initialValues = [`{"theta":-2}`, `{"theta":2}`];
+    options.initRadius = 0.75;
+    auto separate = model.sample(options);
+    enforce(separate[0, 0, 2] == 0.75 && separate[0, 0, 3] == 2, "Wrong per-chain initialization");
+    options.initialValues = null;
     options.chains = 1;
     foreach (requested; [1, 2, -1])
     {

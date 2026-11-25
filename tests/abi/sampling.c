@@ -1,10 +1,14 @@
 /* Model fixture for checking the arguments DStan passes through the C ABI. */
 #define TINYSTAN_EXPORT
 #include "tinystan.h"
+#include <string.h>
 
 #ifdef _WIN32
 __declspec(dllimport) int dstan_runtime_marker(void);
 #endif
+
+/* Deliberately different from 0.3.3's delimiter to check symbol lookup. */
+TINYSTAN_PUBLIC char tinystan_separator_char(void) { return '\x1e'; }
 
 struct TinyStanModel { int marker; };
 
@@ -48,8 +52,13 @@ TINYSTAN_PUBLIC int tinystan_sample(
     double stepsize_jitter, int max_depth, int refresh, int num_threads,
     double *out, size_t out_size, double *stepsize_out, double *inv_metric_out,
     TinyStanError **err) {
-    if (out_size < 2) return 1;
+    if (out_size < 4) return 1;
     out[0] = (double)num_chains;
     out[1] = num_threads;
+    out[2] = init_radius;
+    if (!inits) out[3] = 0;
+    else if (!strcmp(inits, "{\"theta\":-2}")) out[3] = 1;
+    else if (!strcmp(inits, "{\"theta\":-2}\x1e{\"theta\":2}")) out[3] = 2;
+    else return 1;
     return 0;
 }
