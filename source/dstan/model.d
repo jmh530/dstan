@@ -6,12 +6,14 @@ import dstan.result;
 import dstan.internal.tinystan;
 import std.string : fromStringz, split, strip, toStringz;
 
-/// Single-chain diagonal-metric NUTS settings. Warmup is discarded.
+/// Diagonal-metric NUTS settings. Warmup is discarded.
 struct SampleOptions
 {
-    uint seed = 1;       /// Sampling RNG seed. Chain ID is one.
-    int warmup = 1000;   /// Adaptation iterations.
-    int draws = 1000;    /// Retained iterations.
+    uint seed = 1;       /// Sampling RNG seed. Chain IDs start at one.
+    int warmup = 1000;   /// Adaptation iterations per chain.
+    int draws = 1000;    /// Retained iterations per chain.
+    int chains = 1;      /// Number of chains in a single TinyStan call. Must be positive.
+    int threads = 1;     /// Requested Stan thread-pool size. Set on first use; -1 requests available cores.
 }
 
 /// TinyStan status translated into D-owned exception data.
@@ -75,7 +77,7 @@ struct Model
     @property immutable(string)[] names() const @safe pure nothrow @nogc { return columns; }
 
     /**
-    Params: options = Single-chain sampling settings.
+    Params: options = NUTS sampling settings.
     Returns: Required number of doubles for the requested saved draws.
     Throws: Exception for a closed model, invalid settings or overflow.
     */
@@ -84,26 +86,27 @@ struct Model
         if (!handle) throw new Exception("Closed Stan model");
         if (options.warmup < 0 || options.draws <= 0 || options.warmup > int.max - options.draws)
             throw new Exception("Invalid iteration count");
-        return checkedCount(options.draws, columns.length);
+        if (options.threads == 0 || options.threads < -1) throw new Exception("Invalid Stan thread count");
+        return checkedCount(options.chains, options.draws, columns.length);
     }
 
     /**
-    Params: options = Single-chain sampling settings.
-    Returns: D-owned draws with shape [1, options.draws, names.length].
+    Params: options = NUTS sampling settings.
+    Returns: D-owned draws with shape [options.chains, options.draws, names.length].
     Throws: Exception on invalid settings or inference failure.
     */
     Draws sample(SampleOptions options = SampleOptions.init) @safe
     {
         auto values = new double[requiredCount(options)];
         sampleInto(values, options);
-        return Draws(values, columns, [cast(size_t)1, cast(size_t)options.draws, columns.length]);
+        return Draws(values, columns, [cast(size_t)options.chains, cast(size_t)options.draws, columns.length]);
     }
 
     /**
     Params:
         output = Contiguous writable doubles, exclusively available during this call.
-            Writes the required prefix in draw/column order. Failure may leave partial draws.
-        options = Single-chain sampling settings.
+            Writes the required prefix in chain/draw/column order. Failure may leave partial draws.
+        options = NUTS sampling settings.
     Returns: Number of doubles written.
     Throws: Exception on invalid capacity, settings or inference failure.
     */
@@ -132,9 +135,12 @@ struct Model
         // Upstream installs process-wide interrupt handlers. All DStan calls share this lock.
         synchronized
         {
-            status = lib.sample(handle, 1, null, options.seed, 1, 2.0,
+            version (Windows)
+                if (options.chains > 1 || options.threads != 1)
+                    lib.retainSamplingRuntime();
+            status = lib.sample(handle, options.chains, null, options.seed, 1, 2.0,
                 options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
-                0.75, 10, 75, 50, 25, false, 1.0, 0, 10, 0, 1,
+                0.75, 10, 75, 50, 25, false, 1.0, 0, 10, 0, options.threads,
                 storage, output.length, null, null, &error);
         }
         if (status || error) fail(error, "TinyStan sampling failed");

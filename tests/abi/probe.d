@@ -35,9 +35,45 @@ private void checkCallback(string path)
     assert(observed);
 }
 
+private void checkSampling(string[] paths)
+{
+    auto model = Model(paths[0]);
+    version (Windows)
+    {
+        import core.sys.windows.windows;
+        import std.utf : toUTF16z;
+        // The model has already bound to its adjacent tbb.dll. Introduce a
+        // second DLL with the same basename before the first multi-chain call.
+        auto bound = GetModuleHandleW(paths[1].toUTF16z);
+        enforce(bound, "Model runtime fixture missing");
+        auto other = LoadLibraryW(paths[2].toUTF16z);
+        enforce(other && other != bound, "Expected two distinct tbb.dll modules");
+    }
+
+    SampleOptions options;
+    options.draws = 1;
+    options.chains = 2;
+    enforce(model.sample(options)[0, 0, 0] == 2, "Wrong C ABI chain count");
+    options.chains = 1;
+    foreach (requested; [1, 2, -1])
+    {
+        options.threads = requested;
+        enforce(model.sample(options)[0, 0, 1] == requested, "Wrong C ABI thread count");
+    }
+    model.close();
+    version (Windows)
+    {
+        FreeLibrary(other);
+        enforce(GetModuleHandleW(paths[1].toUTF16z) == bound, "Model runtime was unloaded");
+        enforce(!GetModuleHandleW(paths[2].toUTF16z), "Unrelated runtime was pinned");
+    }
+}
+
 void main(string[] args)
 {
-    enforce(args.length == 3, "Pass the wrong-version and missing-export fixture libraries");
+    version (Windows) enum expectedArgs = 6;
+    else enum expectedArgs = 4;
+    enforce(args.length == expectedArgs, "Pass the fixture library paths from the CI workflow");
     checkCallback(args[1]);
     foreach (i, expected; ["Expected TinyStan 0.3.3", "tinystan_stan_version"])
     {
@@ -48,4 +84,5 @@ void main(string[] args)
         }
         catch (Exception e) { assert(e.msg.indexOf(expected) >= 0, e.msg); }
     }
+    checkSampling(args[3 .. $]);
 }

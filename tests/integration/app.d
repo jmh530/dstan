@@ -4,6 +4,7 @@ import std.string : indexOf;
 import std.math : abs, sqrt;
 import std.path : absolutePath, buildPath;
 import std.stdio : writefln;
+import std.process : environment, execute;
 
 private void checkIncludedSource()
 {
@@ -35,8 +36,51 @@ private void checkIncludedSource()
     catch (Exception e) { assert(e.msg.indexOf("changed nested prior") >= 0, e.msg); }
 }
 
+private void checkChains(ref Model model, int threads)
+{
+    import std.file : write;
+
+    SampleOptions options;
+    options.seed = 321;
+    options.draws = 4000;
+    options.chains = 2;
+    options.threads = threads;
+    auto fit = model.sample(options);
+    assert(fit.shape == [2, 4000, 8]);
+    assert(fit.names == model.names);
+    const stride = options.draws * fit.names.length;
+    assert(model.requiredCount(options) == 2 * stride);
+    auto storage = new double[2 * stride + 2];
+    storage[0] = storage[$-1] = -123;
+    auto used = model.sampleInto(storage[1 .. $-1], options);
+    assert(used == 2 * stride && storage[1 .. $-1] == fit.values);
+    assert(storage[0] == -123 && storage[$-1] == -123);
+    assertThrown(model.sampleInto(storage[1 .. $-2], options));
+    assert(fit.values[0 .. stride] != fit.values[stride .. $]);
+    foreach (chain; 0 .. options.chains)
+    {
+        double mean = 0;
+        foreach (draw; 0 .. options.draws)
+        {
+            auto theta = fit[chain, draw, 7];
+            assert(theta == storage[1 + chain * stride + draw * 8 + 7]);
+            mean += theta;
+        }
+        assert(abs(mean / options.draws - 2.5) < 0.1);
+    }
+    auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
+    if (prefix.length)
+        write(prefix ~ (threads == 1 ? ".serial" : ".parallel"), fit.values);
+}
+
 void main(string[] args)
 {
+    if (args.length >= 3 && args[1] == "--parallel")
+    {
+        auto model = Model(args[2], `{"mu":2.5}`, 123, args[3 .. $]);
+        checkChains(model, 2);
+        return;
+    }
     enforce(args.length >= 2, "Pass tests/models and optionally Windows DLL directories");
     auto root = args[1].absolutePath;
     checkIncludedSource();
@@ -83,6 +127,11 @@ void main(string[] args)
     options.warmup = -1;
     assertThrown(model.requiredCount(options));
     options.warmup = 1000;
+    options.threads = -2;
+    assertThrown(model.requiredCount(options));
+    options.threads = 0;
+    assertThrown(model.requiredCount(options));
+    options.threads = 1;
     options.draws = 4000;
     options.seed = 321;
     auto result = model.sample(options);
@@ -94,6 +143,11 @@ void main(string[] args)
     assert(buf.ptr == &storage[1] && buf == result.values);
     assert(storage[0] == -123 && storage[$-1] == -123);
     assertThrown(model.sampleInto(buf[1 .. $], options));
+    checkChains(model, 1);
+    // TBB keeps the first pool size. Start a new process to exercise two threads.
+    import std.file : thisExePath;
+    auto parallel = execute([thisExePath(), "--parallel", normal] ~ dirs);
+    enforce(parallel.status == 0, parallel.output);
     model.close();
     model.close();
     assertThrown(model.sample(options));

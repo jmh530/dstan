@@ -30,21 +30,25 @@ struct Draws
     }
 }
 
-package size_t checkedCount(int draws, size_t columns) @safe
+package size_t checkedCount(int chains, int draws, size_t columns) @safe
 {
-    if (draws <= 0 || columns < 7 || columns > int.max / draws)
+    if (chains <= 0 || draws <= 0 || columns < 7 || columns > int.max / draws)
         throw new Exception("Draw buffer exceeds TinyStan signed-int limits or has invalid dimensions");
-    size_t count = columns * draws;
-    if (count > size_t.max / double.sizeof) throw new Exception("Draw buffer byte count overflows size_t");
-    return count;
+    size_t perChain = columns * draws;
+    if (perChain > size_t.max / double.sizeof / chains)
+        throw new Exception("Draw buffer byte count overflows size_t");
+    return perChain * chains;
 }
 
 unittest
 {
     import std.exception : assertThrown;
-    assert(checkedCount(4, 8) == 32);
-    assertThrown(checkedCount(int.max / 8 + 1, 8));
-    assertThrown(checkedCount(0, 8));
-    assertThrown(checkedCount(1, size_t.max));
-    static if (size_t.sizeof == 8) assert(checkedCount(1, int.max) == int.max);
+    assert(checkedCount(2, 4, 8) == 64);
+    assertThrown(checkedCount(0, 4, 8));
+    assertThrown(checkedCount(1, int.max / 8 + 1, 8));
+    assertThrown(checkedCount(1, 0, 8));
+    assertThrown(checkedCount(1, 1, size_t.max));
+    assertThrown(checkedCount(int.max, 1, int.max));
+    static if (size_t.sizeof == 8)
+        assert(checkedCount(2, 1, int.max) == 2 * cast(size_t)int.max);
 }
