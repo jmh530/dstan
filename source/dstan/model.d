@@ -3,7 +3,7 @@ module dstan.model;
 
 import dstan.internal.library;
 import dstan.result;
-import dstan_abi;
+import dstan.internal.tinystan;
 import std.string : fromStringz, split, strip, toStringz;
 
 /// Single-chain diagonal-metric NUTS settings. Warmup is discarded.

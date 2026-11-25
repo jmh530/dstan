@@ -2,7 +2,7 @@
 
 ## Build and load
 
-`import dstan` exports compilation, model and result modules. Ordinary DUB builds import declarations from a small C translation unit and the two public headers copied verbatim from TinyStan v0.3.3. The private loader derives function-pointer types with `typeof(&function)`. This compiled on Windows DMD and LDC and Ubuntu LDC. The package needs no separately generated bindings, import library, C++ shim or DUB dependencies. The integration workflow compares both headers with the release.
+`import dstan` exports compilation, model and result modules. DStan imports `dstan.internal.tinystan` directly from TinyStan's `tinystan.h`, which includes `tinystan_types.h`. Both headers are copied verbatim from TinyStan v0.3.3. The private loader derives function-pointer types with `typeof(&function)`. The package needs no separately generated bindings, import library, C++ shim or DUB dependencies. The integration workflow compares both headers with the release.
 
 Each model library has its own addresses and allocator. The loader first checks the exact TinyStan API version, then resolves the milestone's required symbols. It reports the embedded Stan version separately. POSIX uses local, eager symbol resolution. Windows uses a wide absolute path, scoped dependency-directory registrations and per-handle symbol lookup. A short lock serializes DStan loader registrations. Dependencies must remain available to the OS loader for the model's lifetime.
 

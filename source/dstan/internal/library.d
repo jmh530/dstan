@@ -1,6 +1,6 @@
 module dstan.internal.library;
 
-import dstan_abi;
+import dstan.internal.tinystan;
 import std.path : absolutePath;
 import std.string : fromStringz, toStringz;
 import std.format : format;

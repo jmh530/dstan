@@ -18,7 +18,7 @@ To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass 
 
 ## Build and run on Linux
 
-Use DUB, a D compiler with ImportC, and its C preprocessor. Ordinary library builds and unit tests need only that D toolchain.
+Use DUB and an ImportC-capable compiler with D frontend 2.112.0 or later and its C preprocessor. DStan imports the TinyStan header directly. Ordinary library builds and unit tests need only that D toolchain.
 
 ```sh
 dub build
