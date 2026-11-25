@@ -54,6 +54,12 @@ private void checkSampling(string[] paths)
     options.draws = 1;
     options.chains = 2;
     enforce(model.sample(options)[0, 0, 0] == 2, "Wrong C ABI chain count");
+    options.chains = 1;
+    foreach (requested; [1, 2, -1])
+    {
+        options.threads = requested;
+        enforce(model.sample(options)[0, 0, 1] == requested, "Wrong C ABI thread count");
+    }
     model.close();
     version (Windows)
     {

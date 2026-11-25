@@ -58,4 +58,6 @@ jobs:
           dub run --root=tests/integration -- "$PWD/tests/models" | tee "$RUNNER_TEMP/summary"
           python3 -m venv "$RUNNER_TEMP/reference"
           "$RUNNER_TEMP/reference/bin/pip" install tinystan==0.3.3
-          "$RUNNER_TEMP/reference/bin/python" tests/integration/reference.py tests/models/normal_model.so "$RUNNER_TEMP/summary" "$DSTAN_REFERENCE_DRAWS"
+          for mode in serial parallel; do
+            "$RUNNER_TEMP/reference/bin/python" tests/integration/reference.py tests/models/normal_model.so "$RUNNER_TEMP/summary" "$DSTAN_REFERENCE_DRAWS" "$mode"
+          done

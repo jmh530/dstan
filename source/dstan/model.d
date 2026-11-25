@@ -13,6 +13,7 @@ struct SampleOptions
     int warmup = 1000;   /// Adaptation iterations per chain.
     int draws = 1000;    /// Retained iterations per chain.
     int chains = 1;      /// Number of chains in a single TinyStan call. Must be positive.
+    int threads = 1;     /// Requested Stan thread-pool size. Set on first use; -1 requests available cores.
 }
 
 /// TinyStan status translated into D-owned exception data.
@@ -85,6 +86,7 @@ struct Model
         if (!handle) throw new Exception("Closed Stan model");
         if (options.warmup < 0 || options.draws <= 0 || options.warmup > int.max - options.draws)
             throw new Exception("Invalid iteration count");
+        if (options.threads == 0 || options.threads < -1) throw new Exception("Invalid Stan thread count");
         return checkedCount(options.chains, options.draws, columns.length);
     }
 
@@ -134,11 +136,11 @@ struct Model
         synchronized
         {
             version (Windows)
-                if (options.chains > 1)
+                if (options.chains > 1 || options.threads != 1)
                     lib.retainSamplingRuntime();
             status = lib.sample(handle, options.chains, null, options.seed, 1, 2.0,
                 options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
-                0.75, 10, 75, 50, 25, false, 1.0, 0, 10, 0, 1,
+                0.75, 10, 75, 50, 25, false, 1.0, 0, 10, 0, options.threads,
                 storage, output.length, null, null, &error);
         }
         if (status || error) fail(error, "TinyStan sampling failed");

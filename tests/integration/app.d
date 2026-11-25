@@ -4,7 +4,7 @@ import std.string : indexOf;
 import std.math : abs, sqrt;
 import std.path : absolutePath, buildPath;
 import std.stdio : writefln;
-import std.process : environment;
+import std.process : environment, execute;
 
 private void checkIncludedSource()
 {
@@ -36,7 +36,7 @@ private void checkIncludedSource()
     catch (Exception e) { assert(e.msg.indexOf("changed nested prior") >= 0, e.msg); }
 }
 
-private void checkChains(ref Model model)
+private void checkChains(ref Model model, int threads)
 {
     import std.file : write;
 
@@ -44,6 +44,7 @@ private void checkChains(ref Model model)
     options.seed = 321;
     options.draws = 4000;
     options.chains = 2;
+    options.threads = threads;
     auto fit = model.sample(options);
     assert(fit.shape == [2, 4000, 8]);
     assert(fit.names == model.names);
@@ -69,11 +70,17 @@ private void checkChains(ref Model model)
     }
     auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
     if (prefix.length)
-        write(prefix ~ ".serial", fit.values);
+        write(prefix ~ (threads == 1 ? ".serial" : ".parallel"), fit.values);
 }
 
 void main(string[] args)
 {
+    if (args.length >= 3 && args[1] == "--parallel")
+    {
+        auto model = Model(args[2], `{"mu":2.5}`, 123, args[3 .. $]);
+        checkChains(model, 2);
+        return;
+    }
     enforce(args.length >= 2, "Pass tests/models and optionally Windows DLL directories");
     auto root = args[1].absolutePath;
     checkIncludedSource();
@@ -120,6 +127,11 @@ void main(string[] args)
     options.warmup = -1;
     assertThrown(model.requiredCount(options));
     options.warmup = 1000;
+    options.threads = -2;
+    assertThrown(model.requiredCount(options));
+    options.threads = 0;
+    assertThrown(model.requiredCount(options));
+    options.threads = 1;
     options.draws = 4000;
     options.seed = 321;
     auto result = model.sample(options);
@@ -131,7 +143,11 @@ void main(string[] args)
     assert(buf.ptr == &storage[1] && buf == result.values);
     assert(storage[0] == -123 && storage[$-1] == -123);
     assertThrown(model.sampleInto(buf[1 .. $], options));
-    checkChains(model);
+    checkChains(model, 1);
+    // TBB keeps the first pool size. Start a new process to exercise two threads.
+    import std.file : thisExePath;
+    auto parallel = execute([thisExePath(), "--parallel", normal] ~ dirs);
+    enforce(parallel.status == 0, parallel.output);
     model.close();
     model.close();
     assertThrown(model.sample(options));
