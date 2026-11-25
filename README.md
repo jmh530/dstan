@@ -8,7 +8,7 @@ import dstan;
 auto model = Model(compileModel("normal.stan"), `{"mu": 2.5}`, 123);
 SampleOptions settings;
 settings.seed = 321;
-settings.draws = 4000;  // retained draws per chain
+settings.draws = 4000;  // post-warmup draws per chain
 settings.chains = 2;
 settings.threads = 2;
 auto fit = model.sample(settings);
@@ -18,6 +18,8 @@ double firstTheta = fit[0, 0, 7];
 ```
 
 Chains and threads both default to one. Chain IDs start at one. Set the desired thread count on the first sampling call using a model library. TinyStan 0.3.3 initializes a persistent Stan thread pool, so a later request can leave the original limit in effect. Use a fresh process when you need a different limit. A threaded build accepts a positive count or `-1` for the available cores.
+
+Set `settings.saveWarmup = true` to include warmup draws. Within each chain, `fit.savedWarmup` is the index of the first posterior row. With 1,000 warmup iterations and the settings above, the shape is `[2, 5000, 8]` and posterior rows start at index 1,000.
 
 To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass the slice to `model.sampleInto(buffer, settings)`. The returned count is measured in doubles. To reuse a compiled model, pass the path to its `_model.so` directly to `Model`. Model construction and sampling have separate seeds. The defaults use seed one for each.
 

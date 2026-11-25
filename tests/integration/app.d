@@ -48,6 +48,7 @@ private void checkChains(ref Model model, int threads)
     auto fit = model.sample(options);
     assert(fit.shape == [2, 4000, 8]);
     assert(fit.names == model.names);
+    assert(fit.savedWarmup == 0);
     const stride = options.draws * fit.names.length;
     assert(model.requiredCount(options) == 2 * stride);
     auto storage = new double[2 * stride + 2];
@@ -69,8 +70,25 @@ private void checkChains(ref Model model, int threads)
         assert(abs(mean / options.draws - 2.5) < 0.1);
     }
     auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
-    if (prefix.length)
-        write(prefix ~ (threads == 1 ? ".serial" : ".parallel"), fit.values);
+    auto suffix = threads == 1 ? ".serial" : ".parallel";
+    if (prefix.length) write(prefix ~ suffix, fit.values);
+
+    options.saveWarmup = true;
+    auto full = model.sample(options);
+    assert(full.shape == [2, 5000, 8] && full.savedWarmup == options.warmup);
+    auto fullStride = full.shape[1] * full.names.length;
+    foreach (chain; 0 .. full.shape[0])
+    {
+        auto start = chain * fullStride + full.savedWarmup * full.names.length;
+        assert(full.values[start .. start + stride] == fit.values[chain * stride .. (chain + 1) * stride]);
+    }
+    assert(model.requiredCount(options) == full.values.length);
+    auto guarded = new double[full.values.length + 2];
+    guarded[0] = guarded[$-1] = -123;
+    assertThrown(model.sampleInto(guarded[1 .. $-2], options));
+    assert(model.sampleInto(guarded[1 .. $-1], options) == full.values.length);
+    assert(guarded[1 .. $-1] == full.values && guarded[0] == -123 && guarded[$-1] == -123);
+    if (prefix.length) write(prefix ~ suffix ~ ".warmup", full.values);
 }
 
 void main(string[] args)
@@ -126,6 +144,15 @@ void main(string[] args)
     SampleOptions options;
     options.warmup = -1;
     assertThrown(model.requiredCount(options));
+    options.draws = 1;
+    options.warmup = 0;
+    options.saveWarmup = true;
+    assert(model.requiredCount(options) == model.names.length);
+    options.warmup = int.max / cast(int) model.names.length;
+    assertThrown(model.requiredCount(options));
+    options.warmup = int.max;
+    assertThrown(model.requiredCount(options));
+    options.saveWarmup = false;
     options.warmup = 1000;
     options.threads = -2;
     assertThrown(model.requiredCount(options));
