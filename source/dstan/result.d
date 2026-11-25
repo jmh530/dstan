@@ -6,7 +6,8 @@ struct Draws
 {
     double[] values;             /// Contiguous chain, draw, column storage.
     immutable(string)[] names;   /// Diagnostic columns followed by flattened Stan outputs.
-    size_t[3] shape;             /// Chains, saved draws, columns.
+    size_t[3] shape;             /// Chains, saved rows per chain (including saved warmup), columns.
+    size_t savedWarmup;          /// Number of leading warmup rows per chain, zero by default.
 
     /**
     Params:

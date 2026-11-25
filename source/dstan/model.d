@@ -6,14 +6,27 @@ import dstan.result;
 import dstan.internal.tinystan;
 import std.string : fromStringz, split, strip, toStringz;
 
-/// Diagonal-metric NUTS settings. Warmup is discarded.
+/// Diagonal-metric NUTS settings. Warmup is discarded by default.
 struct SampleOptions
 {
     uint seed = 1;       /// Sampling RNG seed. Chain IDs start at one.
     int warmup = 1000;   /// Adaptation iterations per chain.
-    int draws = 1000;    /// Retained iterations per chain.
+    int draws = 1000;    /// Post-warmup draws per chain.
     int chains = 1;      /// Number of chains in a single TinyStan call. Must be positive.
     int threads = 1;     /// Requested Stan thread-pool size. Set on first use; -1 requests available cores.
+    bool saveWarmup = false;  /// Keep warmup rows at the beginning of each chain.
+
+    private int savedWarmup() const @safe pure nothrow @nogc
+    {
+        return saveWarmup ? warmup : 0;
+    }
+
+    private int savedRows() const @safe
+    {
+        if (warmup < 0 || draws <= 0 || warmup > int.max - draws)
+            throw new Exception("Invalid iteration count");
+        return savedWarmup() + draws;
+    }
 }
 
 /// TinyStan status translated into D-owned exception data.
@@ -84,28 +97,30 @@ struct Model
     size_t requiredCount(SampleOptions options = SampleOptions.init) const @safe
     {
         if (!handle) throw new Exception("Closed Stan model");
-        if (options.warmup < 0 || options.draws <= 0 || options.warmup > int.max - options.draws)
-            throw new Exception("Invalid iteration count");
         if (options.threads == 0 || options.threads < -1) throw new Exception("Invalid Stan thread count");
-        return checkedCount(options.chains, options.draws, columns.length);
+        return checkedCount(options.chains, options.savedRows(), columns.length);
     }
 
     /**
     Params: options = NUTS sampling settings.
-    Returns: D-owned draws with shape [options.chains, options.draws, names.length].
+    Returns: D-owned draws with shape [options.chains, saved rows per chain, names.length].
+        Each chain contains options.draws posterior rows preceded by any saved warmup rows.
     Throws: Exception on invalid settings or inference failure.
     */
     Draws sample(SampleOptions options = SampleOptions.init) @safe
     {
         auto values = new double[requiredCount(options)];
         sampleInto(values, options);
-        return Draws(values, columns, [cast(size_t)options.chains, cast(size_t)options.draws, columns.length]);
+        return Draws(values, columns,
+            [cast(size_t)options.chains, cast(size_t)options.savedRows(), columns.length],
+            cast(size_t)options.savedWarmup());
     }
 
     /**
     Params:
         output = Contiguous writable doubles, exclusively available during this call.
-            Writes the required prefix in chain/draw/column order. Failure may leave partial draws.
+            Writes the required prefix in chain/draw/column order. Saved warmup rows come first within each chain.
+            Failure may leave partial draws.
         options = NUTS sampling settings.
     Returns: Number of doubles written.
     Throws: Exception on invalid capacity, settings or inference failure.
@@ -140,7 +155,7 @@ struct Model
                     lib.retainSamplingRuntime();
             status = lib.sample(handle, options.chains, null, options.seed, 1, 2.0,
                 options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
-                0.75, 10, 75, 50, 25, false, 1.0, 0, 10, 0, options.threads,
+                0.75, 10, 75, 50, 25, options.saveWarmup, 1.0, 0, 10, 0, options.threads,
                 storage, output.length, null, null, &error);
         }
         if (status || error) fail(error, "TinyStan sampling failed");

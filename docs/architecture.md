@@ -20,7 +20,7 @@ Stan Math initializes static TBB controls on first use. In fresh Windows and Ubu
 
 ## Output
 
-The flat index is `(chain * savedDraws + draw) * columns + column`. All seven diagnostic columns precede model outputs. TinyStan reports flattened constrained output names in output order, including transformed parameters and generated quantities. The number of unconstrained parameters cannot size this buffer. DStan checks capacity and the signed-int per-chain limit in upstream 0.3.3, and checks the total byte count across all chains before either allocation or a caller-buffer write.
+The flat index is `(chain * savedDraws + draw) * columns + column`. With saved warmup, `savedDraws` is the sum of warmup and post-warmup iterations per chain. `Draws.savedWarmup` records the first posterior row index in each chain. All seven diagnostic columns precede model outputs. TinyStan reports flattened constrained output names in output order, including transformed parameters and generated quantities. The number of unconstrained parameters cannot size this buffer. DStan checks capacity and the signed-int per-chain limit in upstream 0.3.3, and checks the total byte count across all chains before either allocation or a caller-buffer write.
 
 `sampleInto` borrows exclusive, aligned storage for one call. Its private trusted bridge registers the address of a local storage pointer as a temporary GC scan range and removes it on exit. The upstream sampler writes synchronously and releases its writers before returning. An error can leave a partially written prefix. `sample` keeps a D-owned slice and copied names usable after model closure. TinyStan copies each Stan draw vector into that storage. The interface avoids result CSV, parsing and a subsequent full-buffer copy.
 

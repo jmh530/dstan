@@ -27,12 +27,12 @@ if mode == "serial":
         assert math.isclose(reference, float(observed), abs_tol=1e-10)
 
 # Compare each chain's complete draw matrix, including all diagnostic columns.
-reference = model.sample(
-    '{"mu":2.5}', num_chains=2, id=1, seed=321, num_warmup=1000,
-    num_samples=4000, num_threads=threads,
-)
-assert reference.data.shape == (2, 4000, 8)
-draws = np.fromfile(f"{prefix}.{mode}", dtype=np.float64).reshape(reference.data.shape)
-for chain in range(2):
-    np.testing.assert_allclose(draws[chain], reference.data[chain], rtol=1e-10, atol=1e-10)
-print(f"{mode}: both complete chain matrices match Python")
+for save_warmup, rows, suffix in [(False, 4000, ""), (True, 5000, ".warmup")]:
+    reference = model.sample(
+        '{"mu":2.5}', num_chains=2, id=1, seed=321, num_warmup=1000,
+        num_samples=4000, num_threads=threads, save_warmup=save_warmup,
+    )
+    assert reference.data.shape == (2, rows, 8)
+    draws = np.fromfile(f"{prefix}.{mode}{suffix}", dtype=np.float64).reshape(reference.data.shape)
+    np.testing.assert_allclose(draws, reference.data, rtol=1e-10, atol=1e-10)
+print(f"{mode}: both chains match Python with and without saved warmup")
