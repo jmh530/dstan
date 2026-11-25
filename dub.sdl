@@ -1,6 +1,7 @@
 name "dstan"
 description "Native in-process Stan inference for D"
 targetType "library"
+toolchainRequirements frontend=">=2.112.0"
 configuration "library" {
     targetType "library"
 }

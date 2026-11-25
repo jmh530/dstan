@@ -18,7 +18,7 @@ To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass 
 
 ## Build and run on Linux
 
-Use DUB, a D compiler with ImportC, and its C preprocessor. Ordinary library builds and unit tests need only that D toolchain.
+Use DUB and an ImportC-capable compiler with D frontend 2.112.0 or later and its C preprocessor. DStan imports the TinyStan header directly. Ordinary library builds and unit tests need only that D toolchain.
 
 ```sh
 dub build
@@ -33,7 +33,11 @@ dub run --root=examples/normal -- "$PWD/tests/models/normal.stan"
 dub run --root=tests/integration -- "$PWD/tests/models"
 ```
 
-`CompileOptions.root` takes precedence over `TINYSTAN`. Otherwise DStan looks in `~/.tinystan/tinystan-0.3.3`. Set `CompileOptions.make` or `MAKE` to select GNU Make. Use `makeArgs` and `stancArgs` for trusted build options. Upstream tracks targets by timestamp. Use a fresh build directory or rebuild affected targets after changing flags, compiler, architecture or upstream source. Keep Windows and Linux model outputs in separate directories.
+`CompileOptions.root` takes precedence over `TINYSTAN`. Otherwise DStan looks in `.tinystan/tinystan-0.3.3` under your home directory (the user profile on Windows). Set `CompileOptions.make` or `MAKE` to select GNU Make. With empty `stancArgs`, compilation inherits `STANCFLAGS` from Make, including settings in `make/local`. A nonempty `stancArgs` replaces that setting. DStan supplies the TinyStan root as an include search directory by default.
+
+DStan asks Make to retranslate a model whose source contains `#`, so edits to nested Stan includes take effect on the next compilation. This also rebuilds a model containing `#` in a comment or string. Other models use upstream timestamp checks. Use a fresh build directory or rebuild affected targets after changing flags, compiler, architecture or upstream source. Keep Windows and Linux model outputs in separate directories.
+
+On Linux, reopening a rebuilt library at the same path can still run the previous model, even after `Model.close()`. In a long-running process, build the new revision under a distinct filename and pass that path to `Model`. To reuse the original path, start a fresh process after rebuilding.
 
 ## Native Windows
 

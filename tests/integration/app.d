@@ -5,10 +5,41 @@ import std.math : abs, sqrt;
 import std.path : absolutePath, buildPath;
 import std.stdio : writefln;
 
+private void checkIncludedSource()
+{
+    import std.file : mkdir, rmdirRecurse, tempDir, write;
+    import std.string : replace;
+    import std.uuid : randomUUID;
+
+    auto dir = buildPath(tempDir, "dstan-includes-" ~ randomUUID().toString);
+    version (Windows) dir = dir.replace("\\", "/");
+    mkdir(dir);
+    scope(exit) rmdirRecurse(dir);
+    auto source = dir ~ "/included.stan";
+    auto prior = dir ~ "/prior.stan";
+    write(source, "parameters { real x; }\nmodel {\n#include outer.stan\n}\n");
+    write(dir ~ "/outer.stan", "#include prior.stan\n");
+    write(prior, "x ~ std_normal();\n");
+    // Load a Make setting after the upstream rules without editing the installation.
+    auto local = dir ~ "/flags.mk";
+    write(local, "STANCFLAGS = --include-paths=" ~ dir ~ "\n");
+    CompileOptions options;
+    options.makeArgs = ["-f", "Makefile", "-f", local];
+    compileModel(source, options);
+    write(prior, "x ~ ; // changed nested prior\n");
+    try
+    {
+        compileModel(source, options);
+        assert(0, "Reused a model built with a different nested include");
+    }
+    catch (Exception e) { assert(e.msg.indexOf("changed nested prior") >= 0, e.msg); }
+}
+
 void main(string[] args)
 {
     enforce(args.length >= 2, "Pass tests/models and optionally Windows DLL directories");
     auto root = args[1].absolutePath;
+    checkIncludedSource();
     CompileOptions missing;
     missing.root = buildPath(root, "missing-installation");
     assertThrown(compileModel(buildPath(root, "normal.stan"), missing));

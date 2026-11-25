@@ -1,7 +1,7 @@
 import dstan;
 import std.exception : enforce;
 import std.string : indexOf;
-import dstan_abi;
+import dstan.internal.tinystan;
 
 private bool observed;
 private extern(C) void callback(const(char)* message, size_t length, bool isError) nothrow

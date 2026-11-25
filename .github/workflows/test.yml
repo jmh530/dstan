@@ -27,6 +27,7 @@ jobs:
           echo "TINYSTAN=$root" >> "$GITHUB_ENV"
           cmp source/dstan/internal/tinystan.h "$root/src/tinystan.h"
           cmp source/dstan/internal/tinystan_types.h "$root/src/tinystan_types.h"
+          mkdir -p "$root/make"
           echo 'O=1' > "$root/make/local"
       - name: Verify loader failures and ABI
         run: |
