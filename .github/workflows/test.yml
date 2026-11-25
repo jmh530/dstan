@@ -1,0 +1,42 @@
+name: Test
+on: [push, pull_request]
+jobs:
+  unit:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        dc: [dmd-2.114.0, ldc-1.43.0]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ${{ matrix.dc }}
+      - run: dub test
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: ldc-1.43.0
+      - name: Install pinned upstream
+        run: |
+          curl -fsSL --retry 3 https://github.com/WardBrian/tinystan/releases/download/v0.3.3/tinystan-0.3.3.tar.gz | tar -xz -C "$RUNNER_TEMP"
+          root="$RUNNER_TEMP/tinystan-0.3.3"
+          echo "TINYSTAN=$root" >> "$GITHUB_ENV"
+          cmp source/dstan/internal/tinystan.h "$root/src/tinystan.h"
+          cmp source/dstan/internal/tinystan_types.h "$root/src/tinystan_types.h"
+          echo 'O=1' > "$root/make/local"
+      - name: Verify loader failures and ABI
+        run: |
+          cc -fPIC -shared -DPATCH=2 -Isource/dstan/internal tests/abi/fixture.c -o "$RUNNER_TEMP/wrong.so"
+          cc -fPIC -shared -DPATCH=3 -Isource/dstan/internal tests/abi/fixture.c -o "$RUNNER_TEMP/missing.so"
+          dub run --root=tests/abi -- "$RUNNER_TEMP/wrong.so" "$RUNNER_TEMP/missing.so"
+      - name: Sample and compare with Python
+        run: |
+          set -o pipefail
+          dub run --root=tests/integration -- "$PWD/tests/models" | tee "$RUNNER_TEMP/summary"
+          python3 -m venv "$RUNNER_TEMP/reference"
+          "$RUNNER_TEMP/reference/bin/pip" install tinystan==0.3.3
+          "$RUNNER_TEMP/reference/bin/python" tests/integration/reference.py tests/models/normal_model.so "$RUNNER_TEMP/summary"
