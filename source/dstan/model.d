@@ -1,9 +1,18 @@
-/// Ownership of initialized Stan models.
+/// Resource ownership and synchronous inference.
 module dstan.model;
 
 import dstan.internal.library;
+import dstan.result;
 import dstan_abi;
-import std.string : fromStringz, strip, toStringz;
+import std.string : fromStringz, split, strip, toStringz;
+
+/// Single-chain diagonal-metric NUTS settings. Warmup is discarded.
+struct SampleOptions
+{
+    uint seed = 1;       /// Sampling RNG seed. Chain ID is one.
+    int warmup = 1000;   /// Adaptation iterations.
+    int draws = 1000;    /// Retained iterations.
+}
 
 /// TinyStan status translated into D-owned exception data.
 class StanException : Exception
@@ -12,12 +21,16 @@ class StanException : Exception
     package this(string msg, int category) { super(msg); this.category = category; }
 }
 
+private immutable string[] diagnostics = ["lp__", "accept_stat__", "stepsize__", "treedepth__",
+    "n_leapfrog__", "divergent__", "energy__"];
+
 /// A scoped, noncopyable owner of one initialized Stan model and its library.
 struct Model
 {
     @disable this(this);
     private Library lib;
     private TinyStanModel* handle;
+    private immutable(string)[] columns;
 
     /**
     Params:
@@ -37,6 +50,9 @@ struct Model
         TinyStanError* error;
         handle = lib.create(json.toStringz, seed, null, &error);
         if (!handle || error) fail(error, "TinyStan model construction failed");
+        auto names = lib.names(handle).fromStringz.idup;
+        columns = diagnostics;
+        if (names.length) columns ~= names.split(",").idup;
     }
 
     /// Releases the model before its library. Repeated calls are safe.
@@ -55,6 +71,75 @@ struct Model
 
     /// Returns: Embedded Stan major, minor and patch version.
     @property int[3] stanVersion() const @safe pure nothrow @nogc { return lib.stanVersion; }
+    /// Returns: D-owned diagnostic and flattened model column names in draw order.
+    @property immutable(string)[] names() const @safe pure nothrow @nogc { return columns; }
+
+    /**
+    Params: options = Single-chain sampling settings.
+    Returns: Required number of doubles for the requested saved draws.
+    Throws: Exception for a closed model, invalid settings or overflow.
+    */
+    size_t requiredCount(SampleOptions options = SampleOptions.init) const @safe
+    {
+        if (!handle) throw new Exception("Closed Stan model");
+        if (options.warmup < 0 || options.draws <= 0 || options.warmup > int.max - options.draws)
+            throw new Exception("Invalid iteration count");
+        return checkedCount(options.draws, columns.length);
+    }
+
+    /**
+    Params: options = Single-chain sampling settings.
+    Returns: D-owned draws with shape [1, options.draws, names.length].
+    Throws: Exception on invalid settings or inference failure.
+    */
+    Draws sample(SampleOptions options = SampleOptions.init) @safe
+    {
+        auto values = new double[requiredCount(options)];
+        sampleInto(values, options);
+        return Draws(values, columns, [cast(size_t)1, cast(size_t)options.draws, columns.length]);
+    }
+
+    /**
+    Params:
+        output = Contiguous writable doubles, exclusively available during this call.
+            Writes the required prefix in draw/column order. Failure may leave partial draws.
+        options = Single-chain sampling settings.
+    Returns: Number of doubles written.
+    Throws: Exception on invalid capacity, settings or inference failure.
+    */
+    size_t sampleInto(scope double[] output, SampleOptions options = SampleOptions.init) @safe
+    {
+        auto count = requiredCount(options);
+        if (output.length < count) throw new Exception("Insufficient output buffer capacity");
+        if ((cast(size_t) output.ptr) % double.alignof)
+            throw new Exception("Misaligned output buffer");
+        runSampler(output[0 .. count], options);
+        return count;
+    }
+
+    // Only called with the verified capacity, a live model and exclusive access
+    // to output. The pinned library joins its workers and releases its writers
+    // before returning. Loading a trusted model library is an @system operation.
+    private void runSampler(scope double[] output, SampleOptions options) @trusted
+    {
+        import core.memory : GC;
+        // Keep the slice pointer visible even while workers hold it in C++ memory.
+        auto storage = output.ptr;
+        GC.addRange(&storage, storage.sizeof);
+        scope(exit) GC.removeRange(&storage);
+        TinyStanError* error;
+        int status;
+        // Upstream installs process-wide interrupt handlers. All DStan calls share this lock.
+        synchronized
+        {
+            status = lib.sample(handle, 1, null, options.seed, 1, 2.0,
+                options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
+                0.75, 10, 75, 50, 25, false, 1.0, 0, 10, 0, 1,
+                storage, output.length, null, null, &error);
+        }
+        if (status || error) fail(error, "TinyStan sampling failed");
+    }
+
     private void fail(TinyStanError* error, string fallback)
     {
         if (!error) throw new StanException(fallback, 0);
@@ -66,7 +151,9 @@ struct Model
 
 unittest
 {
+    import std.exception : assertThrown;
     Model empty;
     static assert(!__traits(compiles, { auto duplicate = empty; }));
     empty.close();
+    assertThrown(empty.requiredCount());
 }

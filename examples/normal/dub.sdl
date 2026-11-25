@@ -1,0 +1,4 @@
+name "dstan-normal"
+targetType "executable"
+sourceFiles "app.d"
+dependency "dstan" path="../.."

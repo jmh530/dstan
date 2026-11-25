@@ -1,0 +1,50 @@
+/// Shape and storage of draws in TinyStan's native order.
+module dstan.result;
+
+/// Sampling results own their flat D storage and copied column metadata.
+struct Draws
+{
+    double[] values;             /// Contiguous chain, draw, column storage.
+    immutable(string)[] names;   /// Diagnostic columns followed by flattened Stan outputs.
+    size_t[3] shape;             /// Chains, saved draws, columns.
+
+    /**
+    Params:
+        chain = Zero-based chain index.
+        draw = Zero-based saved draw index.
+        column = Zero-based output column.
+    Returns: The value at the requested indices.
+    Throws: Exception for out-of-range indices.
+    */
+    double opIndex(size_t chain, size_t draw, size_t column) const @safe
+    {
+        if (chain >= shape[0] || draw >= shape[1] || column >= shape[2])
+            throw new Exception("Draw index outside result dimensions");
+        return values[(chain * shape[1] + draw) * shape[2] + column];
+    }
+    ///
+    unittest
+    {
+        auto draws = Draws([0.1, 2.0, 0.2, 3.0], ["lp__", "theta"], [1, 2, 2]);
+        assert(draws[0, 1, 1] == 3.0);
+    }
+}
+
+package size_t checkedCount(int draws, size_t columns) @safe
+{
+    if (draws <= 0 || columns < 7 || columns > int.max / draws)
+        throw new Exception("Draw buffer exceeds TinyStan signed-int limits or has invalid dimensions");
+    size_t count = columns * draws;
+    if (count > size_t.max / double.sizeof) throw new Exception("Draw buffer byte count overflows size_t");
+    return count;
+}
+
+unittest
+{
+    import std.exception : assertThrown;
+    assert(checkedCount(4, 8) == 32);
+    assertThrown(checkedCount(int.max / 8 + 1, 8));
+    assertThrown(checkedCount(0, 8));
+    assertThrown(checkedCount(1, size_t.max));
+    static if (size_t.sizeof == 8) assert(checkedCount(1, int.max) == int.max);
+}

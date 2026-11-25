@@ -1,0 +1,4 @@
+name "dstan-integration"
+targetType "executable"
+sourceFiles "app.d"
+dependency "dstan" path="../.."
