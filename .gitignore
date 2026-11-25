@@ -1,0 +1,17 @@
+/.dub/
+/dub.selections.json
+/libdstan.a
+/dstan.lib
+/dstan-test-*
+*.obj
+*.o
+*_model.so
+*.pdb
+/dstan
+/dstan.exe
+**/.dub/
+**/dub.selections.json
+/examples/normal/dstan-normal*
+/tests/integration/dstan-integration*
+/tests/abi/dstan-abi*
+/tests/models/*.hpp

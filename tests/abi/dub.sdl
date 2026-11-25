@@ -1,0 +1,4 @@
+name "dstan-abi"
+targetType "executable"
+sourceFiles "probe.d"
+dependency "dstan" path="../.."

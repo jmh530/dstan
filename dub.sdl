@@ -1,0 +1,10 @@
+name "dstan"
+description "Native in-process Stan inference for D"
+targetType "library"
+configuration "library" {
+    targetType "library"
+}
+configuration "unittest" {
+    targetType "executable"
+    mainSourceFile "tests/unit.d"
+}
