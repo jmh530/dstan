@@ -4,10 +4,12 @@ import re
 import sys
 from pathlib import Path
 
+import numpy as np
 import tinystan
 
-library, summary = sys.argv[1:]
-fit = tinystan.Model(library).sample(
+library, summary, prefix = sys.argv[1:]
+model = tinystan.Model(library)
+fit = model.sample(
     '{"mu":2.5}', num_chains=1, seed=321, num_warmup=1000,
     num_samples=4000, num_threads=1,
 )
@@ -21,4 +23,14 @@ match = re.search(r"shape=\[1, 4000, 8\] mean=([\d.]+) sd=([\d.]+)", Path(summar
 assert match, "D summary missing"
 for reference, observed in zip((theta.mean(), theta.std(ddof=1)), match.groups()):
     assert math.isclose(reference, float(observed), abs_tol=1e-10)
-print(f"Python theta mean={theta.mean():.12f} sd={theta.std(ddof=1):.12f}")
+
+# Compare each chain's complete draw matrix, including all diagnostic columns.
+reference = model.sample(
+    '{"mu":2.5}', num_chains=2, id=1, seed=321, num_warmup=1000,
+    num_samples=4000, num_threads=1,
+)
+assert reference.data.shape == (2, 4000, 8)
+draws = np.fromfile(f"{prefix}.serial", dtype=np.float64).reshape(reference.data.shape)
+for chain in range(2):
+    np.testing.assert_allclose(draws[chain], reference.data[chain], rtol=1e-10, atol=1e-10)
+print("Both complete chain matrices match Python")

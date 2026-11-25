@@ -1,6 +1,6 @@
 # DStan
 
-DStan runs Stan inference inside a D process. It can compile a Stan source file using TinyStan, open an existing model library, and sample one chain with adaptive diagonal-metric NUTS. Draws land in contiguous D memory. The initial release target is TinyStan **0.3.3**, built with Stan **2.39.0**.
+DStan runs Stan inference inside a D process. It can compile a Stan source file using TinyStan, open an existing model library, and sample one or more chains with adaptive diagonal-metric NUTS. Draws land in contiguous D memory. The initial release target is TinyStan **0.3.3**, built with Stan **2.39.0**.
 
 ```d
 import dstan;
@@ -8,11 +8,15 @@ import dstan;
 auto model = Model(compileModel("normal.stan"), `{"mu": 2.5}`, 123);
 SampleOptions settings;
 settings.seed = 321;
-settings.draws = 4000;
+settings.draws = 4000;  // retained draws per chain
+settings.chains = 2;
 auto fit = model.sample(settings);
+assert(fit.shape == [2, 4000, 8]);
 assert(fit.names[7] == "theta");
 double firstTheta = fit[0, 0, 7];
 ```
+
+The chain count defaults to one. Chain IDs start at one.
 
 To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass the slice to `model.sampleInto(buffer, settings)`. The returned count is measured in doubles. To reuse a compiled model, pass the path to its `_model.so` directly to `Model`. Model construction and sampling have separate seeds. The defaults use seed one for each.
 

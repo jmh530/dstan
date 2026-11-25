@@ -4,6 +4,7 @@ import std.string : indexOf;
 import std.math : abs, sqrt;
 import std.path : absolutePath, buildPath;
 import std.stdio : writefln;
+import std.process : environment;
 
 private void checkIncludedSource()
 {
@@ -33,6 +34,42 @@ private void checkIncludedSource()
         assert(0, "Reused a model built with a different nested include");
     }
     catch (Exception e) { assert(e.msg.indexOf("changed nested prior") >= 0, e.msg); }
+}
+
+private void checkChains(ref Model model)
+{
+    import std.file : write;
+
+    SampleOptions options;
+    options.seed = 321;
+    options.draws = 4000;
+    options.chains = 2;
+    auto fit = model.sample(options);
+    assert(fit.shape == [2, 4000, 8]);
+    assert(fit.names == model.names);
+    const stride = options.draws * fit.names.length;
+    assert(model.requiredCount(options) == 2 * stride);
+    auto storage = new double[2 * stride + 2];
+    storage[0] = storage[$-1] = -123;
+    auto used = model.sampleInto(storage[1 .. $-1], options);
+    assert(used == 2 * stride && storage[1 .. $-1] == fit.values);
+    assert(storage[0] == -123 && storage[$-1] == -123);
+    assertThrown(model.sampleInto(storage[1 .. $-2], options));
+    assert(fit.values[0 .. stride] != fit.values[stride .. $]);
+    foreach (chain; 0 .. options.chains)
+    {
+        double mean = 0;
+        foreach (draw; 0 .. options.draws)
+        {
+            auto theta = fit[chain, draw, 7];
+            assert(theta == storage[1 + chain * stride + draw * 8 + 7]);
+            mean += theta;
+        }
+        assert(abs(mean / options.draws - 2.5) < 0.1);
+    }
+    auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
+    if (prefix.length)
+        write(prefix ~ ".serial", fit.values);
 }
 
 void main(string[] args)
@@ -94,6 +131,7 @@ void main(string[] args)
     assert(buf.ptr == &storage[1] && buf == result.values);
     assert(storage[0] == -123 && storage[$-1] == -123);
     assertThrown(model.sampleInto(buf[1 .. $], options));
+    checkChains(model);
     model.close();
     model.close();
     assertThrown(model.sample(options));

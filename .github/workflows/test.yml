@@ -13,6 +13,22 @@ jobs:
         with:
           compiler: ${{ matrix.dc }}
       - run: dub test
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows' && matrix.dc == 'ldc-1.43.0'
+      - name: Verify Windows model runtime ownership and sampling ABI
+        if: runner.os == 'Windows' && matrix.dc == 'ldc-1.43.0'
+        shell: cmd
+        run: |
+          set "src=%CD%"
+          cd /d "%RUNNER_TEMP%"
+          mkdir decoy
+          cl /std:c11 /nologo /LD /I"%src%\source\dstan\internal" /DPATCH=2 "%src%\tests\abi\fixture.c" /Fewrong.dll || exit /b 1
+          cl /std:c11 /nologo /LD /I"%src%\source\dstan\internal" /DPATCH=3 "%src%\tests\abi\fixture.c" /Femissing.dll || exit /b 1
+          cl /std:c11 /nologo /LD "%src%\tests\abi\runtime.c" /Fetbb.dll || exit /b 1
+          copy tbb.dll decoy\tbb.dll || exit /b 1
+          cl /std:c11 /nologo /LD /I"%src%\source\dstan\internal" "%src%\tests\abi\sampling.c" tbb.lib /Fesampling.dll || exit /b 1
+          cd /d "%src%"
+          dub run --root=tests/abi -- "%RUNNER_TEMP%\wrong.dll" "%RUNNER_TEMP%\missing.dll" "%RUNNER_TEMP%\sampling.dll" "%RUNNER_TEMP%\tbb.dll" "%RUNNER_TEMP%\decoy\tbb.dll"
   integration:
     runs-on: ubuntu-latest
     steps:
@@ -33,11 +49,13 @@ jobs:
         run: |
           cc -fPIC -shared -DPATCH=2 -Isource/dstan/internal tests/abi/fixture.c -o "$RUNNER_TEMP/wrong.so"
           cc -fPIC -shared -DPATCH=3 -Isource/dstan/internal tests/abi/fixture.c -o "$RUNNER_TEMP/missing.so"
-          dub run --root=tests/abi -- "$RUNNER_TEMP/wrong.so" "$RUNNER_TEMP/missing.so"
+          cc -fPIC -shared -Isource/dstan/internal tests/abi/sampling.c -o "$RUNNER_TEMP/sampling.so"
+          dub run --root=tests/abi -- "$RUNNER_TEMP/wrong.so" "$RUNNER_TEMP/missing.so" "$RUNNER_TEMP/sampling.so"
       - name: Sample and compare with Python
         run: |
           set -o pipefail
+          export DSTAN_REFERENCE_DRAWS="$RUNNER_TEMP/chain-draws"
           dub run --root=tests/integration -- "$PWD/tests/models" | tee "$RUNNER_TEMP/summary"
           python3 -m venv "$RUNNER_TEMP/reference"
           "$RUNNER_TEMP/reference/bin/pip" install tinystan==0.3.3
-          "$RUNNER_TEMP/reference/bin/python" tests/integration/reference.py tests/models/normal_model.so "$RUNNER_TEMP/summary"
+          "$RUNNER_TEMP/reference/bin/python" tests/integration/reference.py tests/models/normal_model.so "$RUNNER_TEMP/summary" "$DSTAN_REFERENCE_DRAWS"

@@ -32,6 +32,37 @@ package(dstan) struct Library
     Fn!tinystan_get_error_message message;
     Fn!tinystan_destroy_error freeError;
 
+    version (Windows)
+    {
+        void retainSamplingRuntime()
+        {
+            import std.string : icmp;
+            // The live handle identifies a trusted, loader-mapped PE image of
+            // this process's bitness. FirstThunk contains resolved addresses.
+            auto base = cast(ubyte*) handle;
+            auto dos = cast(IMAGE_DOS_HEADER*) base;
+            auto nt = cast(IMAGE_NT_HEADERS*)(base + dos.e_lfanew);
+            auto directory = nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+            auto imports = cast(IMAGE_IMPORT_DESCRIPTOR*)(base + directory.VirtualAddress);
+            foreach (ref entry; imports[0 .. directory.Size / IMAGE_IMPORT_DESCRIPTOR.sizeof])
+            {
+                if (!entry.Name) break;
+                auto name = fromStringz(cast(const(char)*)(base + entry.Name));
+                if (icmp(name, "tbb.dll") != 0) continue;
+
+                // TinyStan 0.3.3 imports functions directly from TBB. Pin the
+                // module containing a bound function even if names collide.
+                auto thunk = cast(IMAGE_THUNK_DATA*)(base + entry.FirstThunk);
+                enum pinFromAddress = 0x1 | 0x4;
+                HMODULE runtime;
+                if (GetModuleHandleExW(pinFromAddress, cast(const(wchar)*)thunk.u1.Function, &runtime))
+                    return;
+                throw new Exception(format("Pinning model's TBB runtime (Windows error %s)", GetLastError()));
+            }
+            throw new Exception("Missing tbb.dll import in TinyStan model");
+        }
+    }
+
     private T resolve(T)(string name)
     {
         version (Windows)
