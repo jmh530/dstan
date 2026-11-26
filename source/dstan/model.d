@@ -24,6 +24,9 @@ struct SampleOptions
     /// Use a finite value in [0, 1). See $(LINK2 https://github.com/stan-dev/stan/issues/3462, Stan issue 3462).
     double stepSizeJitter = 0.0;
 
+    /// Maximum tree depth per NUTS transition, from 1 through 31 inclusive. Trees may stop growing earlier.
+    int maxTreeDepth = 10;
+
     private int savedWarmup() const @safe pure nothrow @nogc
     {
         return saveWarmup ? warmup : 0;
@@ -138,6 +141,10 @@ struct Model
     {
         if (!handle) throw new Exception("Closed Stan model");
         import std.math : isFinite;
+        // A full depth-d transition takes 2^d - 1 leapfrog steps. Stan 2.39.0
+        // accumulates that count in a signed 32-bit int.
+        if (options.maxTreeDepth < 1 || options.maxTreeDepth > 31)
+            throw new Exception("Maximum NUTS tree depth must be between 1 and 31 inclusive");
         if (!isFinite(options.stepSize) || options.stepSize <= 0)
             throw new Exception("Initial step size must be finite and positive");
         // Stan 2.39.0 silently ignores 1.0. Revisit the exclusive upper bound
@@ -215,7 +222,8 @@ struct Model
                     lib.retainSamplingRuntime();
             status = lib.sample(handle, options.chains, buffers.inits, options.seed, 1, options.initRadius,
                 options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
-                0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, options.stepSizeJitter, 10, 0, options.threads,
+                0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, options.stepSizeJitter,
+                options.maxTreeDepth, 0, options.threads,
                 buffers.output, output.length, null, null, &error);
         }
         if (status || error) fail(error, "TinyStan sampling failed");

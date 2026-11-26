@@ -58,6 +58,12 @@ private void checkSampling(string[] paths)
     enforce(defaults[0, 0, 2] == 2 && defaults[0, 0, 3] == 0, "Wrong default initialization");
     enforce(defaults[0, 0, 4] == 1.0, "Wrong default C ABI step size");
     enforce(defaults[0, 0, 5] == 0.0, "Wrong default C ABI step-size jitter");
+    enforce(defaults[0, 0, 6] == 10, "Wrong default C ABI maximum tree depth");
+    foreach (depth; [1, 31])
+    {
+        options.maxTreeDepth = depth;
+        enforce(model.sample(options)[0, 0, 6] == depth, "Wrong explicit C ABI maximum tree depth");
+    }
     import std.math : nextDown;
     foreach (jitter; [0.25, nextDown(1.0)])
     {
