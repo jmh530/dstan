@@ -52,7 +52,8 @@ TINYSTAN_PUBLIC int tinystan_sample(
     double stepsize_jitter, int max_depth, int refresh, int num_threads,
     double *out, size_t out_size, double *stepsize_out, double *inv_metric_out,
     TinyStanError **err) {
-    if (out_size < 6) return 1;
+    if (out_size < 7) return 1;
+    out[6] = max_depth;
     out[5] = stepsize_jitter;
     out[4] = stepsize;
     out[0] = (double)num_chains;

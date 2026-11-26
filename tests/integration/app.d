@@ -96,6 +96,27 @@ private void checkChains(ref Model model, int threads)
     auto smallerStep = model.sample(options);
     assert(smallerStep.shape == [2, 120, 8]);
     if (prefix.length) write(prefix ~ suffix ~ ".step-size", smallerStep.values);
+    auto depthOptions = options;
+    depthOptions.maxTreeDepth = 1;
+    auto capped = model.sample(depthOptions);
+    assert(capped.shape == smallerStep.shape && capped.names[3] == "treedepth__");
+    foreach (chain; 0 .. capped.shape[0])
+    {
+        bool defaultExceededCap;
+        foreach (row; 0 .. capped.shape[1])
+        {
+            assert(capped[chain, row, 3] <= depthOptions.maxTreeDepth);
+            if (smallerStep[chain, row, 3] > depthOptions.maxTreeDepth)
+                defaultExceededCap = true;
+        }
+        assert(defaultExceededCap);
+    }
+    if (prefix.length) write(prefix ~ suffix ~ ".depth", capped.values);
+    foreach (invalid; [0, -1, 32, int.max])
+    {
+        depthOptions.maxTreeDepth = invalid;
+        assertThrown(model.requiredCount(depthOptions));
+    }
     options.stepSizeJitter = 0.25;
     auto jittered = model.sample(options);
     assert(jittered.shape == smallerStep.shape && jittered.values != smallerStep.values);
