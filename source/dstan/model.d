@@ -18,6 +18,7 @@ struct SampleOptions
 
     const(string)[] initialValues; /// In-memory JSON objects on the constrained scale. Supply zero, one shared object, or one per chain.
     double initRadius = 2.0;       /// Finite nonnegative radius for unspecified coordinates on the unconstrained scale.
+    double stepSize = 1.0;         /// Initial NUTS step size. Must be finite and positive. Stan adapts it during warmup.
 
     private int savedWarmup() const @safe pure nothrow @nogc
     {
@@ -133,6 +134,8 @@ struct Model
     {
         if (!handle) throw new Exception("Closed Stan model");
         import std.math : isFinite;
+        if (!isFinite(options.stepSize) || options.stepSize <= 0)
+            throw new Exception("Initial step size must be finite and positive");
         if (!isFinite(options.initRadius) || options.initRadius < 0)
             throw new Exception("Initialization radius must be finite and nonnegative");
         if (options.initialValues.length > 1 && options.initialValues.length != options.chains)
@@ -204,7 +207,7 @@ struct Model
                     lib.retainSamplingRuntime();
             status = lib.sample(handle, options.chains, buffers.inits, options.seed, 1, options.initRadius,
                 options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
-                0.75, 10, 75, 50, 25, options.saveWarmup, 1.0, 0, 10, 0, options.threads,
+                0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, 0, 10, 0, options.threads,
                 buffers.output, output.length, null, null, &error);
         }
         if (status || error) fail(error, "TinyStan sampling failed");

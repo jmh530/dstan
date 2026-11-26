@@ -30,6 +30,8 @@ auto initialized = model.sample(settings);
 
 `settings.initRadius` defaults to 2.0. It controls random initialization of unspecified coordinates on the unconstrained scale. Set it to zero to initialize those coordinates at zero.
 
+Set `settings.stepSize` to choose the initial NUTS step size for all chains. It defaults to `1.0` and accepts finite values greater than zero. Stan can adjust the step size during warmup.
+
 To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass the slice to `model.sampleInto(buffer, settings)`. The returned count is measured in doubles. To reuse a compiled model, pass the path to its `_model.so` directly to `Model`. Model construction and sampling have separate seeds. The defaults use seed one for each.
 
 ## Build and run on Linux
