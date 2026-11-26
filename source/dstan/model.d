@@ -10,7 +10,7 @@ import std.string : fromStringz, split, strip, toStringz;
 struct SampleOptions
 {
     uint seed = 1;       /// Sampling RNG seed. Chain IDs start at one.
-    int warmup = 1000;   /// Adaptation iterations per chain.
+    int warmup = 1000;   /// Warmup iterations per chain, including when adaptation is disabled.
     int draws = 1000;    /// Post-warmup draws per chain.
     int chains = 1;      /// Number of chains in a single TinyStan call. Must be positive.
     int threads = 1;     /// Requested Stan thread-pool size. Set on first use; -1 requests available cores.
@@ -18,7 +18,7 @@ struct SampleOptions
 
     const(string)[] initialValues; /// In-memory JSON objects on the constrained scale. Supply zero, one shared object, or one per chain.
     double initRadius = 2.0;       /// Finite nonnegative radius for unspecified coordinates on the unconstrained scale.
-    double stepSize = 1.0;         /// Initial NUTS step size. Must be finite and positive. Stan adapts it during warmup.
+    double stepSize = 1.0;         /// Initial NUTS step size. Must be finite and positive.
 
     /// Maximum fractional variation in step size per trajectory. Zero disables jitter.
     /// Use a finite value in [0, 1). See $(LINK2 https://github.com/stan-dev/stan/issues/3462, Stan issue 3462).
@@ -26,6 +26,12 @@ struct SampleOptions
 
     /// Maximum tree depth per NUTS transition, from 1 through 31 inclusive. Trees may stop growing earlier.
     int maxTreeDepth = 10;
+
+    /// Adapt the step size and diagonal metric during warmup.
+    bool adapt = true;
+
+    /// Target average acceptance probability during adaptation. Must be in (0, 1) when adapt is true.
+    double adaptDelta = 0.8;
 
     private int savedWarmup() const @safe pure nothrow @nogc
     {
@@ -147,6 +153,9 @@ struct Model
             throw new Exception("Maximum NUTS tree depth must be between 1 and 31 inclusive");
         if (!isFinite(options.stepSize) || options.stepSize <= 0)
             throw new Exception("Initial step size must be finite and positive");
+        // Stan 2.39.0's step-size adaptation setter silently ignores both endpoints.
+        if (options.adapt && !(options.adaptDelta > 0 && options.adaptDelta < 1))
+            throw new Exception("Target acceptance probability must be in (0, 1)");
         // Stan 2.39.0 silently ignores 1.0. Revisit the exclusive upper bound
         // when updating Stan: https://github.com/stan-dev/stan/issues/3462
         if (!(options.stepSizeJitter >= 0 && options.stepSizeJitter < 1))
@@ -221,7 +230,7 @@ struct Model
                 if (options.chains > 1 || options.threads != 1)
                     lib.retainSamplingRuntime();
             status = lib.sample(handle, options.chains, buffers.inits, options.seed, 1, options.initRadius,
-                options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
+                options.warmup, options.draws, diagonal, null, options.adapt, options.adaptDelta, 0.05,
                 0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, options.stepSizeJitter,
                 options.maxTreeDepth, 0, options.threads,
                 buffers.output, output.length, null, null, &error);

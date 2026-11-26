@@ -59,6 +59,11 @@ private void checkSampling(string[] paths)
     enforce(defaults[0, 0, 4] == 1.0, "Wrong default C ABI step size");
     enforce(defaults[0, 0, 5] == 0.0, "Wrong default C ABI step-size jitter");
     enforce(defaults[0, 0, 6] == 10, "Wrong default C ABI maximum tree depth");
+    enforce(defaults[0, 0, 7] == 1 && defaults[0, 0, 8] == 0.8, "Wrong default C ABI adaptation settings");
+    options.adaptDelta = 0.9;
+    enforce(model.sample(options)[0, 0, 8] == 0.9, "Wrong explicit C ABI adaptation target");
+    options.adapt = false;
+    enforce(model.sample(options)[0, 0, 7] == 0, "Expected adaptation disabled at the C ABI");
     foreach (depth; [1, 31])
     {
         options.maxTreeDepth = depth;
