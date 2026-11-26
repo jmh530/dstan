@@ -92,6 +92,16 @@ private void checkChains(ref Model model, int threads)
 
     options.warmup = 100;
     options.draws = 20;
+    options.stepSize = 0.25;
+    auto smallerStep = model.sample(options);
+    assert(smallerStep.shape == [2, 120, 8]);
+    if (prefix.length) write(prefix ~ suffix ~ ".step-size", smallerStep.values);
+    foreach (invalid; [0.0, -1.0, double.nan, double.infinity, -double.infinity])
+    {
+        options.stepSize = invalid;
+        assertThrown(model.requiredCount(options));
+    }
+    options.stepSize = 1.0;
     options.initialValues = [`{"theta":-2}`, `{"theta":2}`];
     options.initRadius = 0.75;
     auto initialized = model.sample(options);
