@@ -54,6 +54,20 @@ private void checkSampling(string[] paths)
     options.draws = 1;
     options.chains = 2;
     auto defaults = model.sample(options);
+    enforce(defaults[0, 0, 9] == diagonal, "Expected diagonal metric by default");
+    foreach (i, metric; [Metric.unit, Metric.diagonal, Metric.dense])
+    {
+        options.metric = metric;
+        enforce(model.sample(options)[0, 0, 9] == [unit, diagonal, dense][i], "Wrong C ABI metric");
+    }
+    import std.exception : assertThrown;
+    auto oversized = Model(paths[0], `{"oversized":true}`);
+    assertThrown(oversized.requiredCount(options)); // Dense at 46,341 free parameters.
+    options.metric = cast(Metric) 99;
+    assertThrown(model.requiredCount(options));
+    options.metric = Metric.diagonal;
+    enforce(oversized.requiredCount(options) == defaults.values.length);
+    oversized.close();
     enforce(defaults[0, 0, 0] == 2, "Wrong C ABI chain count");
     enforce(defaults[0, 0, 2] == 2 && defaults[0, 0, 3] == 0, "Wrong default initialization");
     enforce(defaults[0, 0, 4] == 1.0, "Wrong default C ABI step size");

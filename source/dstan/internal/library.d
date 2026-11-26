@@ -28,6 +28,7 @@ package(dstan) struct Library
     Fn!tinystan_create_model create;
     Fn!tinystan_destroy_model destroy;
     Fn!tinystan_model_param_names names;
+    Fn!tinystan_model_num_free_params numFreeParams;
     Fn!tinystan_sample sample;
     Fn!tinystan_get_error_type errorType;
     Fn!tinystan_get_error_message message;
@@ -112,6 +113,7 @@ package(dstan) struct Library
         create = resolve!(typeof(create))("tinystan_create_model");
         destroy = resolve!(typeof(destroy))("tinystan_destroy_model");
         names = resolve!(typeof(names))("tinystan_model_param_names");
+        numFreeParams = resolve!(typeof(numFreeParams))("tinystan_model_num_free_params");
         sample = resolve!(typeof(sample))("tinystan_sample");
         errorType = resolve!(typeof(errorType))("tinystan_get_error_type");
         message = resolve!(typeof(message))("tinystan_get_error_message");

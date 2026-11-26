@@ -1,6 +1,6 @@
 # DStan
 
-DStan runs Stan inference inside a D process. It can compile a Stan source file using TinyStan, open an existing model library, and sample one or more chains with adaptive diagonal-metric NUTS. Draws land in contiguous D memory. The initial release target is TinyStan **0.3.3**, built with Stan **2.39.0**.
+DStan runs Stan inference inside a D process. It can compile a Stan source file using TinyStan, open an existing model library, and sample one or more chains with NUTS. Draws land in contiguous D memory. The initial release target is TinyStan **0.3.3**, built with Stan **2.39.0**.
 
 ```d
 import dstan;
@@ -32,7 +32,9 @@ auto initialized = model.sample(settings);
 
 Set `settings.stepSize` to choose the initial NUTS step size for all chains. It defaults to `1.0` and accepts finite values greater than zero. Stan can adjust the step size during warmup.
 
-By default, Stan adapts the step size and diagonal metric during warmup. Set `settings.adaptDelta` to choose the target average acceptance probability (default `0.8`, strictly between zero and one). Set `settings.adapt = false` to keep the configured nominal step size and the unit diagonal metric. Warmup and `saveWarmup` still apply, and Stan ignores `adaptDelta` in this mode.
+Set `settings.metric` to choose the NUTS metric. During warmup, the default `Metric.diagonal` adapts a scale for each unconstrained parameter. `Metric.dense` adapts a full matrix to account for correlations and requires memory quadratic in the number of unconstrained parameters. `Metric.unit` keeps the identity metric and adapts only the step size.
+
+Set `settings.adaptDelta` to choose the target average acceptance probability (default `0.8`, strictly between zero and one). Set `settings.adapt = false` to keep the configured nominal step size and identity metric for all three choices. Warmup and `saveWarmup` still apply, and Stan ignores `adaptDelta` in this mode.
 
 Set `settings.stepSizeJitter` to vary the step size between trajectories. The default is `0.0` (disabled). For example, `0.25` allows up to 25% variation above or below the current nominal step size. DStan accepts finite values in `[0, 1)` because the Stan 2.39.0 sampler bundled with TinyStan 0.3.3 silently ignores exactly `1.0`. [Stan issue #3462](https://github.com/stan-dev/stan/issues/3462) tracks the intended upper bound.
 

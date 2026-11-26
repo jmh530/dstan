@@ -179,6 +179,33 @@ private void checkChains(ref Model model, int threads)
     }
 }
 
+private void checkMetrics(ref Model model)
+{
+    import std.conv : to;
+    import std.file : write;
+
+    SampleOptions options;
+    options.seed = 321;
+    options.chains = 2;
+    options.warmup = 200;
+    options.draws = 20;
+    options.saveWarmup = true;
+    auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
+    foreach (metric; [Metric.unit, Metric.diagonal, Metric.dense])
+        foreach (adapt; [false, true])
+        {
+            options.metric = metric;
+            options.adapt = adapt;
+            auto fit = model.sample(options);
+            assert(fit.shape == [2, 220, 10] && fit.savedWarmup == options.warmup);
+            foreach (chain; 0 .. fit.shape[0])
+                foreach (row; 0 .. fit.shape[1])
+                    assert(abs(fit[chain, row, 7] + fit[chain, row, 8] - fit[chain, row, 9]) < 1e-10);
+            if (prefix.length)
+                write(prefix ~ "." ~ metric.to!string ~ (adapt ? ".adapted" : ".fixed"), fit.values);
+        }
+}
+
 void main(string[] args)
 {
     if (args.length >= 3 && args[1] == "--parallel")
@@ -272,9 +299,7 @@ void main(string[] args)
     foreach (i; 0 .. options.draws) variance += (result[0, i, 7] - mean) ^^ 2;
     auto sd = sqrt(variance / (options.draws - 1));
     assert(abs(mean - 2.5) < 0.1 && abs(sd - 1) < 0.1);
-    auto multi = second.sample();
-    foreach (i; 0 .. multi.shape[1])
-        assert(abs(multi[0, i, 7] + multi[0, i, 8] - multi[0, i, 9]) < 1e-10);
+    checkMetrics(second);
     auto reopened = Model(normal, `{"mu":1}`, 1, dirs);
     assert(reopened.names == result.names);
     writefln("shape=%s mean=%.12f sd=%.12f", result.shape, mean, sd);

@@ -10,7 +10,7 @@ __declspec(dllimport) int dstan_runtime_marker(void);
 /* Deliberately different from 0.3.3's delimiter to check symbol lookup. */
 TINYSTAN_PUBLIC char tinystan_separator_char(void) { return '\x1e'; }
 
-struct TinyStanModel { int marker; };
+struct TinyStanModel { int marker; size_t num_free_params; };
 
 TINYSTAN_PUBLIC void tinystan_api_version(int *major, int *minor, int *patch) {
     *major = 0; *minor = 3; *patch = 3;
@@ -23,16 +23,20 @@ TINYSTAN_PUBLIC void tinystan_stan_version(int *major, int *minor, int *patch) {
 TINYSTAN_PUBLIC TinyStanModel *tinystan_create_model(
     const char *data, unsigned int seed, TINYSTAN_PRINT_CALLBACK callback,
     TinyStanError **err) {
-    static TinyStanModel model;
+    static TinyStanModel normal = {0, 46340}, oversized = {0, 46341};
+    TinyStanModel *model = strcmp(data, "{\"oversized\":true}") == 0 ? &oversized : &normal;
 #ifdef _WIN32
-    model.marker = dstan_runtime_marker();
+    model->marker = dstan_runtime_marker();
 #endif
-    return &model;
+    return model;
 }
 
 TINYSTAN_PUBLIC void tinystan_destroy_model(TinyStanModel *model) {}
 TINYSTAN_PUBLIC const char *tinystan_model_param_names(const TinyStanModel *model) {
-    return "adapt,delta";
+    return "adapt,delta,metric";
+}
+TINYSTAN_PUBLIC size_t tinystan_model_num_free_params(const TinyStanModel *model) {
+    return model->num_free_params;
 }
 TINYSTAN_PUBLIC const char *tinystan_get_error_message(const TinyStanError *err) {
     return "sampling fixture error";
@@ -52,7 +56,8 @@ TINYSTAN_PUBLIC int tinystan_sample(
     double stepsize_jitter, int max_depth, int refresh, int num_threads,
     double *out, size_t out_size, double *stepsize_out, double *inv_metric_out,
     TinyStanError **err) {
-    if (out_size < 9) return 1;
+    if (out_size < 10) return 1;
+    out[9] = metric_choice;
     out[7] = adapt;
     out[8] = delta;
     out[6] = max_depth;

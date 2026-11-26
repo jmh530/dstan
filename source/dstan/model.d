@@ -6,7 +6,15 @@ import dstan.result;
 import dstan.internal.tinystan;
 import std.string : fromStringz, split, strip, toStringz;
 
-/// Diagonal-metric NUTS settings. Warmup is discarded by default.
+/// Euclidean metric used by NUTS on the unconstrained parameter scale.
+enum Metric
+{
+    diagonal = dstan.internal.tinystan.diagonal, /// Adapt a separate scale for each parameter when adaptation is enabled.
+    unit = dstan.internal.tinystan.unit,         /// Keep the identity metric even during adaptation.
+    dense = dstan.internal.tinystan.dense,       /// Adapt a full matrix when adaptation is enabled.
+}
+
+/// NUTS settings. Warmup is discarded by default.
 struct SampleOptions
 {
     uint seed = 1;       /// Sampling RNG seed. Chain IDs start at one.
@@ -27,11 +35,14 @@ struct SampleOptions
     /// Maximum tree depth per NUTS transition, from 1 through 31 inclusive. Trees may stop growing earlier.
     int maxTreeDepth = 10;
 
-    /// Adapt the step size and diagonal metric during warmup.
+    /// Adapt the step size and any diagonal or dense metric during warmup.
     bool adapt = true;
 
     /// Target average acceptance probability during adaptation. Must be in (0, 1) when adapt is true.
     double adaptDelta = 0.8;
+
+    /// NUTS metric for all chains. Dense supports up to 46,340 unconstrained parameters in TinyStan 0.3.3.
+    Metric metric = Metric.diagonal;
 
     private int savedWarmup() const @safe pure nothrow @nogc
     {
@@ -96,6 +107,7 @@ struct Model
     @disable this(this);
     private Library lib;
     private TinyStanModel* handle;
+    private size_t numFreeParams;
     private immutable(string)[] columns;
 
     /**
@@ -114,6 +126,7 @@ struct Model
         TinyStanError* error;
         handle = lib.create(json.toStringz, seed, null, &error);
         if (!handle || error) fail(error, "TinyStan model construction failed");
+        numFreeParams = lib.numFreeParams(handle);
         auto names = lib.names(handle).fromStringz.idup;
         columns = diagnostics;
         if (names.length) columns ~= names.split(",").idup;
@@ -147,6 +160,11 @@ struct Model
     {
         if (!handle) throw new Exception("Closed Stan model");
         import std.math : isFinite;
+        if (options.metric != Metric.unit && options.metric != Metric.diagonal && options.metric != Metric.dense)
+            throw new Exception("Invalid NUTS metric");
+        // TinyStan 0.3.3 squares this dimension in a signed int even with null metric buffers.
+        if (options.metric == Metric.dense && numFreeParams > 46_340)
+            throw new Exception("Dense NUTS metric exceeds 46,340 unconstrained parameters");
         // A full depth-d transition takes 2^d - 1 leapfrog steps. Stan 2.39.0
         // accumulates that count in a signed 32-bit int.
         if (options.maxTreeDepth < 1 || options.maxTreeDepth > 31)
@@ -230,7 +248,8 @@ struct Model
                 if (options.chains > 1 || options.threads != 1)
                     lib.retainSamplingRuntime();
             status = lib.sample(handle, options.chains, buffers.inits, options.seed, 1, options.initRadius,
-                options.warmup, options.draws, diagonal, null, options.adapt, options.adaptDelta, 0.05,
+                options.warmup, options.draws, cast(TinyStanMetric) options.metric, null,
+                options.adapt, options.adaptDelta, 0.05,
                 0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, options.stepSizeJitter,
                 options.maxTreeDepth, 0, options.threads,
                 buffers.output, output.length, null, null, &error);
