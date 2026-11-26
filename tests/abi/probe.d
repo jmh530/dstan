@@ -57,6 +57,14 @@ private void checkSampling(string[] paths)
     enforce(defaults[0, 0, 0] == 2, "Wrong C ABI chain count");
     enforce(defaults[0, 0, 2] == 2 && defaults[0, 0, 3] == 0, "Wrong default initialization");
     enforce(defaults[0, 0, 4] == 1.0, "Wrong default C ABI step size");
+    enforce(defaults[0, 0, 5] == 0.0, "Wrong default C ABI step-size jitter");
+    import std.math : nextDown;
+    foreach (jitter; [0.25, nextDown(1.0)])
+    {
+        options.stepSizeJitter = jitter;
+        enforce(model.sample(options)[0, 0, 5] == jitter, "Wrong explicit C ABI step-size jitter");
+    }
+    options.stepSizeJitter = 0;
     options.stepSize = 0.25;
     options.initialValues = [`{"theta":-2}`];
     options.initRadius = 0;

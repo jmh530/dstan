@@ -96,6 +96,16 @@ private void checkChains(ref Model model, int threads)
     auto smallerStep = model.sample(options);
     assert(smallerStep.shape == [2, 120, 8]);
     if (prefix.length) write(prefix ~ suffix ~ ".step-size", smallerStep.values);
+    options.stepSizeJitter = 0.25;
+    auto jittered = model.sample(options);
+    assert(jittered.shape == smallerStep.shape && jittered.values != smallerStep.values);
+    if (prefix.length) write(prefix ~ suffix ~ ".jitter", jittered.values);
+    foreach (invalid; [-0.01, 1.0, 1.01, double.nan, double.infinity, -double.infinity])
+    {
+        options.stepSizeJitter = invalid;
+        assertThrown(model.requiredCount(options));
+    }
+    options.stepSizeJitter = 0;
     foreach (invalid; [0.0, -1.0, double.nan, double.infinity, -double.infinity])
     {
         options.stepSize = invalid;

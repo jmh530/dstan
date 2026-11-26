@@ -20,6 +20,10 @@ struct SampleOptions
     double initRadius = 2.0;       /// Finite nonnegative radius for unspecified coordinates on the unconstrained scale.
     double stepSize = 1.0;         /// Initial NUTS step size. Must be finite and positive. Stan adapts it during warmup.
 
+    /// Maximum fractional variation in step size per trajectory. Zero disables jitter.
+    /// Use a finite value in [0, 1). See $(LINK2 https://github.com/stan-dev/stan/issues/3462, Stan issue 3462).
+    double stepSizeJitter = 0.0;
+
     private int savedWarmup() const @safe pure nothrow @nogc
     {
         return saveWarmup ? warmup : 0;
@@ -136,6 +140,10 @@ struct Model
         import std.math : isFinite;
         if (!isFinite(options.stepSize) || options.stepSize <= 0)
             throw new Exception("Initial step size must be finite and positive");
+        // Stan 2.39.0 silently ignores 1.0. Revisit the exclusive upper bound
+        // when updating Stan: https://github.com/stan-dev/stan/issues/3462
+        if (!(options.stepSizeJitter >= 0 && options.stepSizeJitter < 1))
+            throw new Exception("Step-size jitter must be in [0, 1). Stan 2.39.0 silently ignores 1.0.");
         if (!isFinite(options.initRadius) || options.initRadius < 0)
             throw new Exception("Initialization radius must be finite and nonnegative");
         if (options.initialValues.length > 1 && options.initialValues.length != options.chains)
@@ -207,7 +215,7 @@ struct Model
                     lib.retainSamplingRuntime();
             status = lib.sample(handle, options.chains, buffers.inits, options.seed, 1, options.initRadius,
                 options.warmup, options.draws, diagonal, null, true, 0.8, 0.05,
-                0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, 0, 10, 0, options.threads,
+                0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, options.stepSizeJitter, 10, 0, options.threads,
                 buffers.output, output.length, null, null, &error);
         }
         if (status || error) fail(error, "TinyStan sampling failed");
