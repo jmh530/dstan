@@ -32,6 +32,8 @@ auto initialized = model.sample(settings);
 
 Set `settings.stepSize` to choose the initial NUTS step size for all chains. It defaults to `1.0` and accepts finite values greater than zero. Stan can adjust the step size during warmup.
 
+By default, Stan adapts the step size and diagonal metric during warmup. Set `settings.adaptDelta` to choose the target average acceptance probability (default `0.8`, strictly between zero and one). Set `settings.adapt = false` to keep the configured nominal step size and the unit diagonal metric. Warmup and `saveWarmup` still apply, and Stan ignores `adaptDelta` in this mode.
+
 Set `settings.stepSizeJitter` to vary the step size between trajectories. The default is `0.0` (disabled). For example, `0.25` allows up to 25% variation above or below the current nominal step size. DStan accepts finite values in `[0, 1)` because the Stan 2.39.0 sampler bundled with TinyStan 0.3.3 silently ignores exactly `1.0`. [Stan issue #3462](https://github.com/stan-dev/stan/issues/3462) tracks the intended upper bound.
 
 Set `settings.maxTreeDepth` to cap tree growth for each NUTS transition. It accepts integers from `1` through `31` and defaults to `10`. A full depth-31 transition uses `2^31 - 1` leapfrog steps, the largest count Stan 2.39.0 can represent in its signed 32-bit counter. The sampler can stop earlier. The `treedepth__` diagnostic reports the depth reached on each transition.

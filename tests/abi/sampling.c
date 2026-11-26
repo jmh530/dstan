@@ -32,7 +32,7 @@ TINYSTAN_PUBLIC TinyStanModel *tinystan_create_model(
 
 TINYSTAN_PUBLIC void tinystan_destroy_model(TinyStanModel *model) {}
 TINYSTAN_PUBLIC const char *tinystan_model_param_names(const TinyStanModel *model) {
-    return "";
+    return "adapt,delta";
 }
 TINYSTAN_PUBLIC const char *tinystan_get_error_message(const TinyStanError *err) {
     return "sampling fixture error";
@@ -52,7 +52,9 @@ TINYSTAN_PUBLIC int tinystan_sample(
     double stepsize_jitter, int max_depth, int refresh, int num_threads,
     double *out, size_t out_size, double *stepsize_out, double *inv_metric_out,
     TinyStanError **err) {
-    if (out_size < 7) return 1;
+    if (out_size < 9) return 1;
+    out[7] = adapt;
+    out[8] = delta;
     out[6] = max_depth;
     out[5] = stepsize_jitter;
     out[4] = stepsize;

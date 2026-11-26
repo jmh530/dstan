@@ -39,6 +39,8 @@ for suffix, settings in [
     ("initialized", dict(inits=[{"theta": -2}, {"theta": 2}], init_radius=0.75)),
     ("zero-radius", dict(inits="{}", init_radius=0.0)),
     ("step-size", dict(stepsize=0.25)),
+    ("adapt-delta", dict(stepsize=0.25, delta=0.9)),
+    ("no-adapt", dict(stepsize=0.25, adapt=False)),
     ("jitter", dict(stepsize=0.25, stepsize_jitter=0.25)),
     ("depth", dict(stepsize=0.25, max_depth=1)),
 ]:

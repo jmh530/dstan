@@ -96,6 +96,24 @@ private void checkChains(ref Model model, int threads)
     auto smallerStep = model.sample(options);
     assert(smallerStep.shape == [2, 120, 8]);
     if (prefix.length) write(prefix ~ suffix ~ ".step-size", smallerStep.values);
+    auto adaptation = options;
+    adaptation.adaptDelta = 0.9;
+    auto adapted = model.sample(adaptation);
+    if (prefix.length) write(prefix ~ suffix ~ ".adapt-delta", adapted.values);
+    foreach (invalid; [-0.1, 0.0, 1.0, 1.1, double.nan, double.infinity, -double.infinity])
+    {
+        adaptation.adaptDelta = invalid;
+        assertThrown(model.requiredCount(adaptation));
+    }
+    adaptation.adapt = false;
+    adaptation.adaptDelta = double.nan; // Ignored when adaptation is disabled.
+    auto fixed = model.sample(adaptation);
+    assert(fixed.shape == smallerStep.shape && fixed.savedWarmup == options.warmup);
+    assert(fixed.names[2] == "stepsize__");
+    foreach (chain; 0 .. fixed.shape[0])
+        foreach (row; 0 .. fixed.shape[1])
+            assert(fixed[chain, row, 2] == options.stepSize);
+    if (prefix.length) write(prefix ~ suffix ~ ".no-adapt", fixed.values);
     auto depthOptions = options;
     depthOptions.maxTreeDepth = 1;
     auto capped = model.sample(depthOptions);
