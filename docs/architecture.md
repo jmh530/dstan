@@ -20,6 +20,8 @@ Stan Math initializes static TBB controls on first use. In fresh Windows and Ubu
 
 ## Output
 
+Metric sizing uses the unconstrained parameter count reported by the loaded model. TinyStan 0.3.3 squares that count in a signed 32-bit integer for a dense metric, even with null metric input and output buffers. DStan rejects dense sampling above 46,340 unconstrained parameters before allocating draws or entering the sampler. Available memory can limit dense sampling at much smaller sizes.
+
 The flat index is `(chain * savedDraws + draw) * columns + column`. With saved warmup, `savedDraws` is the sum of warmup and post-warmup iterations per chain. `Draws.savedWarmup` records the first posterior row index in each chain. All seven diagnostic columns precede model outputs. TinyStan reports flattened constrained output names in output order, including transformed parameters and generated quantities. The number of unconstrained parameters cannot size this buffer. DStan checks capacity and the signed-int per-chain limit in upstream 0.3.3, and checks the total byte count across all chains before either allocation or a caller-buffer write.
 
 `sampleInto` borrows exclusive, aligned storage for one call. Its private trusted bridge registers the local input and output pointers as a temporary GC scan range and removes it on exit. The upstream sampler writes synchronously and releases its writers before returning. An error can leave a partially written prefix. `sample` keeps a D-owned slice and copied names usable after model closure. TinyStan copies each Stan draw vector into that storage. The interface avoids result CSV, parsing and a subsequent full-buffer copy.

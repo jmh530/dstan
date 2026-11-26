@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import tinystan
+from tinystan.model import HMCMetric
 
 library, summary, prefix, mode = sys.argv[1:]
 threads = {"serial": 1, "parallel": 2}[mode]
@@ -25,6 +26,17 @@ if mode == "serial":
     assert match, "D summary missing"
     for reference, observed in zip((theta.mean(), theta.std(ddof=1)), match.groups()):
         assert math.isclose(reference, float(observed), abs_tol=1e-10)
+
+    structured = tinystan.Model(str(Path(library).with_name("structured_model.so")))
+    for metric in (HMCMetric.UNIT, HMCMetric.DIAGONAL, HMCMetric.DENSE):
+        for adapt in (False, True):
+            reference = structured.sample(
+                "{}", num_chains=2, seed=321, num_warmup=200, num_samples=20,
+                num_threads=1, save_warmup=True, metric=metric, adapt=adapt,
+            )
+            suffix = "adapted" if adapt else "fixed"
+            draws = np.fromfile(f"{prefix}.{metric.name.lower()}.{suffix}", dtype=np.float64)
+            np.testing.assert_allclose(draws.reshape(2, 220, 10), reference.data, rtol=1e-10, atol=1e-10)
 
 # Compare each chain's complete draw matrix, including all diagnostic columns.
 for save_warmup, rows, suffix in [(False, 4000, ""), (True, 5000, ".warmup")]:
