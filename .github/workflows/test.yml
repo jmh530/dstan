@@ -61,3 +61,5 @@ jobs:
           for mode in serial parallel; do
             "$RUNNER_TEMP/reference/bin/python" tests/integration/reference.py tests/models/normal_model.so "$RUNNER_TEMP/summary" "$DSTAN_REFERENCE_DRAWS" "$mode"
           done
+      - name: Verify SIGINT and same-model recovery
+        run: python3 tests/interrupt/run.py tests/integration/dstan-integration

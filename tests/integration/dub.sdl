@@ -1,4 +1,4 @@
 name "dstan-integration"
 targetType "executable"
-sourceFiles "app.d"
+sourceFiles "app.d" "interrupts.d"
 dependency "dstan" path="../.."

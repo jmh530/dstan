@@ -18,6 +18,8 @@ The synchronous sampler passes all chains to TinyStan in one call with a null pr
 
 Stan Math initializes static TBB controls on first use. In fresh Windows and Ubuntu processes, requesting one thread then two yielded active limits of one and one. Reversing the requests yielded two and two. Other active TBB controls can further limit parallelism. On Windows, multi-chain or threaded sampling uses a resolved import address from the model to retain its TBB runtime DLL until process exit so its workers can finish after model closure. Model handles and model-library references are still released by the owner.
 
+On Ubuntu/WSL, a process-directed SIGINT during sampling raised `StanException` with category 2. On native Windows x64, Ctrl+Break in a private console produced the same result. Each test installed an application handler before sampling, delivered an interrupt once every requested worker reached generated quantities, verified that a second event reached the application handler, and completed another run on the same model. The tested configurations were one chain on one thread and two chains on two threads. Native Windows Ctrl+C and console-free hosts remain untested.
+
 ## Output
 
 Metric sizing uses the unconstrained parameter count reported by the loaded model. TinyStan 0.3.3 squares that count in a signed 32-bit integer for a dense metric, even with null metric input and output buffers. DStan rejects dense sampling above 46,340 unconstrained parameters before allocating draws or entering the sampler. Available memory can limit dense sampling at much smaller sizes.
