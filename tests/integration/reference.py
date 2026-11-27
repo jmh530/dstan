@@ -29,6 +29,16 @@ if mode == "serial":
 
     structured = tinystan.Model(str(Path(library).with_name("structured_model.so")))
     for metric in (HMCMetric.UNIT, HMCMetric.DIAGONAL, HMCMetric.DENSE):
+        base = f"{prefix}.{metric.name.lower()}"
+        settings = dict(num_chains=2, seed=321, num_warmup=200, num_samples=20, num_threads=1, metric=metric)
+        tuned = structured.sample("{}", save_inv_metric=True, **settings)
+        np.testing.assert_allclose(np.fromfile(base + ".step-sizes"), tuned.stepsize, rtol=1e-10, atol=1e-10)
+        initial_metric = None
+        if metric != HMCMetric.UNIT:
+            initial_metric = tuned.inv_metric
+            np.testing.assert_allclose(np.fromfile(base + ".inverse-metric"), initial_metric.ravel(), rtol=1e-10, atol=1e-10)
+        reused = structured.sample("{}", init_inv_metric=initial_metric, adapt=False, **settings)
+        np.testing.assert_allclose(np.fromfile(base + ".reused").reshape(2, 20, 10), reused.data, rtol=1e-10, atol=1e-10)
         for adapt in (False, True):
             reference = structured.sample(
                 "{}", num_chains=2, seed=321, num_warmup=200, num_samples=20,

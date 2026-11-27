@@ -59,6 +59,8 @@ TINYSTAN_PUBLIC int tinystan_sample(
     if (out_size < 10) return 1;
     /* Even an empty slice with backing storage must select identity. */
     if (init_inv_metric != NULL) return 1;
+    /* Simulate a successful first chain and a second that never wrote its state. */
+    if (stepsize_out != NULL) stepsize_out[0] = stepsize;
     out[9] = metric_choice;
     out[7] = adapt;
     out[8] = delta;

@@ -160,6 +160,17 @@ struct Model
     /// Returns: Number of unconstrained real parameters per chain, used to size inverse metrics.
     @property size_t numFreeParams() const @safe pure nothrow @nogc { return freeParamCount; }
 
+    // Called after checking the dense dimension. TinyStan uses a signed int for
+    // each per-chain block and accepts pointers without buffer lengths.
+    private size_t metricCount(SampleOptions options) const @safe
+    {
+        if (options.metric == Metric.unit) return 0;
+        const block = options.metric == Metric.dense ? numFreeParams * numFreeParams : numFreeParams;
+        if (options.chains <= 0 || block > int.max || block > size_t.max / double.sizeof / options.chains)
+            throw new Exception("Inverse metric dimensions exceed supported limits");
+        return options.chains * block;
+    }
+
     /**
     Params: options = NUTS sampling settings.
     Returns: Required number of doubles for the requested saved draws.
@@ -178,11 +189,7 @@ struct Model
         {
             if (options.metric == Metric.unit)
                 throw new Exception("Unit metrics require an empty initial inverse metric");
-            // The C ABI takes a pointer without a length and uses a signed int for each block size.
-            const block = options.metric == Metric.dense ? numFreeParams * numFreeParams : numFreeParams;
-            if (options.chains <= 0 || block > int.max || block > size_t.max / double.sizeof / options.chains)
-                throw new Exception("Initial inverse metric dimensions exceed supported limits");
-            if (options.initialInverseMetric.length != options.chains * block)
+            if (options.initialInverseMetric.length != metricCount(options))
                 throw new Exception("Supply exactly one initial inverse metric per chain");
             if ((cast(size_t) options.initialInverseMetric.ptr) % double.alignof)
                 throw new Exception("Misaligned initial inverse metric");
@@ -216,8 +223,42 @@ struct Model
     */
     Draws sample(SampleOptions options = SampleOptions.init) @safe
     {
-        auto values = new double[requiredCount(options)];
-        sampleInto(values, options);
+        return sampleAllocated(options, requiredCount(options), null, null);
+    }
+
+    /**
+    Params: options = NUTS settings, defaulting to SampleOptions.init. Adaptation must be enabled.
+    Returns: D-owned draws plus one final nominal step size per chain and a flat inverse metric
+        in chain order. Each diagonal block has numFreeParams entries and each dense block has
+        numFreeParams squared entries in column-major order. Unit metrics return an empty slice.
+        Tuning values are available whether or not warmup draws are saved.
+    Throws: Exception for a closed model, invalid settings, size overflow, inference failure,
+        or a chain that did not return a valid final step size.
+    */
+    AdaptationResult sampleWithAdaptation(SampleOptions options = SampleOptions.init) @safe
+    {
+        import std.math : isFinite;
+        if (!options.adapt) throw new Exception("Adaptation results require adaptation to be enabled");
+        const count = requiredCount(options);
+        const metricSize = metricCount(options);
+        // The checked draw buffer already holds at least one double per chain.
+        auto stepSizes = new double[options.chains];
+        double[] inverseMetric;
+        if (metricSize) inverseMetric = new double[metricSize];
+        auto draws = sampleAllocated(options, count, stepSizes, inverseMetric);
+        // Stan can return early during step-size initialization without writing the
+        // structured state. An unwritten D double retains its NaN initializer.
+        foreach (step; stepSizes)
+            if (!isFinite(step) || step <= 0)
+                throw new Exception("Stan did not return a valid final step size for every chain");
+        return AdaptationResult(draws, stepSizes, inverseMetric);
+    }
+
+    private Draws sampleAllocated(SampleOptions options, size_t count, scope double[] stepSizes,
+                                   scope double[] inverseMetric) @safe
+    {
+        auto values = new double[count];
+        runSampler(values, options, stepSizes, inverseMetric);
         return Draws(values, columns,
             [cast(size_t)options.chains, cast(size_t)options.savedRows(), columns.length],
             cast(size_t)options.savedWarmup());
@@ -243,23 +284,23 @@ struct Model
         if (options.initialInverseMetric.length)
         {
             import std.array : overlap;
-            import std.math : isFinite;
             if (overlap(draws, options.initialInverseMetric).length)
                 throw new Exception("Initial inverse metric overlaps the draw buffer");
-            // Stan checks diagonal positivity and dense symmetry and positive definiteness.
-            foreach (value; options.initialInverseMetric)
-                if (!isFinite(value)) throw new Exception("Initial inverse metric entries must be finite");
         }
-        runSampler(draws, options);
+        runSampler(draws, options, null, null);
         return count;
     }
 
-    // Only called with the verified capacity, a live model and exclusive access
-    // to output. The pinned library joins its workers and releases its writers
+    // Draw capacity is checked. Any adaptation outputs are disjoint fresh allocations
+    // sized for all chains and never exposed until success. The pinned library joins its workers and releases its writers
     // before returning. Loading a trusted model library is an @system operation.
-    private void runSampler(scope double[] output, SampleOptions options) @trusted
+    private void runSampler(scope double[] output, SampleOptions options, scope double[] stepSizes,
+                            scope double[] inverseMetric) @trusted
     {
         import core.memory : GC;
+        import std.math : isFinite;
+        foreach (value; options.initialInverseMetric)
+            if (!isFinite(value)) throw new Exception("Initial inverse metric entries must be finite");
         // Root borrowed buffers for the synchronous call. TinyStan's metric readers
         // hold pointers into the checked slice until they copy the values into Stan.
         struct Buffers
@@ -267,9 +308,13 @@ struct Model
             double* output;
             const(char)* inits;
             const(double)* metric;
+            double* stepSizes;
+            double* inverseMetric;
         }
         Buffers buffers;
         buffers.output = output.ptr;
+        buffers.stepSizes = stepSizes.ptr;
+        buffers.inverseMetric = inverseMetric.ptr;
         if (options.initialInverseMetric.length)
             buffers.metric = options.initialInverseMetric.ptr;
         if (options.initialValues.length)
@@ -289,7 +334,7 @@ struct Model
                 options.adapt, options.adaptDelta, 0.05,
                 0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, options.stepSizeJitter,
                 options.maxTreeDepth, 0, options.threads,
-                buffers.output, output.length, null, null, &error);
+                buffers.output, output.length, buffers.stepSizes, buffers.inverseMetric, &error);
         }
         if (status || error) fail(error, "TinyStan sampling failed");
     }
