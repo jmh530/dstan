@@ -67,8 +67,19 @@ private void checkSampling(string[] paths)
     tooLarge.chains = int.max;
     tooLarge.initialInverseMetric = [1.0];
     auto message = collectExceptionMsg(model.requiredCount(tooLarge));
-    enforce(message == "Initial inverse metric dimensions exceed supported limits",
+    enforce(message == "Inverse metric dimensions exceed supported limits",
         "Unexpected overflow diagnostic: " ~ message);
+    static if (size_t.sizeof == 8)
+    {
+        tooLarge.initialInverseMetric = null;
+        enforce(collectExceptionMsg(model.sampleWithAdaptation(tooLarge)) == message,
+            "Expected metric output overflow before allocation");
+    }
+    auto missingState = options;
+    missingState.metric = Metric.unit;
+    enforce(collectExceptionMsg(model.sampleWithAdaptation(missingState)) ==
+        "Stan did not return a valid final step size for every chain",
+        "Expected the unwritten second-chain step size to be rejected");
     auto oversized = Model(paths[0], `{"oversized":true}`);
     assertThrown(oversized.requiredCount(options)); // Dense at 46,341 free parameters.
     options.metric = cast(Metric) 99;

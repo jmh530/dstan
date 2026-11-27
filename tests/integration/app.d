@@ -238,6 +238,45 @@ private void checkMetrics(ref Model model)
     assertThrown(model.sampleInto(storage, options));
 }
 
+private void checkAdaptationResults(ref Model model)
+{
+    import std.conv : to;
+    import std.file : write;
+    SampleOptions options;
+    options.seed = 321;
+    options.chains = 2;
+    options.warmup = 200;
+    options.draws = 20;
+    auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
+    foreach (metric; [Metric.unit, Metric.diagonal, Metric.dense])
+    {
+        options.metric = metric;
+        auto fit = model.sampleWithAdaptation(options);
+        assert(fit.draws.savedWarmup == 0 && fit.draws.shape == [2, 20, 10]);
+        assert(fit.draws.values == model.sample(options).values);
+        assert(fit.stepSizes.length == options.chains);
+        foreach (chain, step; fit.stepSizes)
+            foreach (row; 0 .. options.draws)
+                assert(step == fit.draws[chain, row, 2]); // stepsize__, zero jitter
+        const expected = metric == Metric.unit ? 0 : metric == Metric.diagonal ? 4 : 8;
+        assert(fit.inverseMetric.length == expected);
+        auto reuse = options;
+        reuse.adapt = false;
+        reuse.initialInverseMetric = fit.inverseMetric;
+        auto fixed = model.sample(reuse);
+        assert(fixed.shape == fit.draws.shape);
+        if (prefix.length)
+        {
+            auto base = prefix ~ "." ~ metric.to!string;
+            write(base ~ ".step-sizes", fit.stepSizes);
+            if (expected) write(base ~ ".inverse-metric", fit.inverseMetric);
+            write(base ~ ".reused", fixed.values);
+        }
+    }
+    options.adapt = false;
+    assertThrown(model.sampleWithAdaptation(options));
+}
+
 void main(string[] args)
 {
     if (args.length >= 3 && args[1] == "--parallel")
@@ -332,6 +371,7 @@ void main(string[] args)
     auto sd = sqrt(variance / (options.draws - 1));
     assert(abs(mean - 2.5) < 0.1 && abs(sd - 1) < 0.1);
     checkMetrics(second);
+    checkAdaptationResults(second);
     auto reopened = Model(normal, `{"mu":1}`, 1, dirs);
     assert(reopened.names == result.names);
     writefln("shape=%s mean=%.12f sd=%.12f", result.shape, mean, sd);

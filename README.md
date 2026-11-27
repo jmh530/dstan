@@ -38,6 +38,18 @@ The initial inverse mass matrix defaults to identity. To supply your own, set `s
 
 Set `settings.adaptDelta` to choose the target average acceptance probability (default `0.8`, strictly between zero and one). Set `settings.adapt = false` to keep the configured nominal step size and initial metric fixed. Warmup and `saveWarmup` still apply, and Stan ignores `adaptDelta` in this mode.
 
+Use `sampleWithAdaptation` to keep the final tuning values alongside the draws. It requires adaptation to be enabled and works with warmup draws discarded. For example, to reuse just the learned metric on the same model with the same chain count:
+
+```d
+auto fit = model.sampleWithAdaptation(settings);
+auto finalStepForFirstChain = fit.stepSizes[0];
+settings.initialInverseMetric = fit.inverseMetric;
+settings.adapt = false;
+auto fixed = model.sample(settings);
+```
+
+`fit.draws` has the usual chain, draw, and column layout. `fit.stepSizes` holds one final nominal step size per chain. `fit.inverseMetric` uses the same per-chain layout as `initialInverseMetric` and is empty for the unit metric.
+
 Set `settings.stepSizeJitter` to vary the step size between trajectories. The default is `0.0` (disabled). For example, `0.25` allows up to 25% variation above or below the current nominal step size. DStan accepts finite values in `[0, 1)` because the Stan 2.39.0 sampler bundled with TinyStan 0.3.3 silently ignores exactly `1.0`. [Stan issue #3462](https://github.com/stan-dev/stan/issues/3462) tracks the intended upper bound.
 
 Set `settings.maxTreeDepth` to cap tree growth for each NUTS transition. It accepts integers from `1` through `31` and defaults to `10`. A full depth-31 transition uses `2^31 - 1` leapfrog steps, the largest count Stan 2.39.0 can represent in its signed 32-bit counter. The sampler can stop earlier. The `treedepth__` diagnostic reports the depth reached on each transition.

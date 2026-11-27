@@ -1,6 +1,14 @@
 /// Shape and storage of draws in TinyStan's native order.
 module dstan.result;
 
+/// D-owned draws and final per-chain tuning values from adaptive NUTS.
+struct AdaptationResult
+{
+    Draws draws;            /// Saved warmup and posterior draws, as selected by SampleOptions.
+    double[] stepSizes;     /// Final nominal step size for each chain, in chain order.
+    double[] inverseMetric; /// One block per chain, in initialInverseMetric layout. Empty for the unit metric.
+}
+
 /// Sampling results own their flat D storage and copied column metadata.
 struct Draws
 {
