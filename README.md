@@ -56,6 +56,10 @@ Set `settings.maxTreeDepth` to cap tree growth for each NUTS transition. It acce
 
 To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass the slice to `model.sampleInto(buffer, settings)`. The returned count is measured in doubles. To reuse a compiled model, pass the path to its `_model.so` directly to `Model`. Model construction and sampling have separate seeds. The defaults use seed one for each.
 
+## Interrupts
+
+During sampling, catch `StanException` and check `category == 2` to recognize a user interrupt. Local integration tests verified SIGINT on Ubuntu/WSL and Ctrl+Break in a native Windows console. Both single-chain and parallel two-chain runs restored the application's prior handler and allowed another run on the same model. The Python interrupt test driver builds a test model in a temporary directory and runs each case in a child process with a timeout. Use a writable temporary path without spaces, as for other TinyStan builds.
+
 ## Build and run on Linux
 
 Use DUB and an ImportC-capable compiler with D frontend 2.112.0 or later and its C preprocessor. DStan imports the TinyStan header directly. Ordinary library builds and unit tests need only that D toolchain.
@@ -71,6 +75,7 @@ For model compilation install GNU Make, a C++17 toolchain, and the **complete** 
 export TINYSTAN=/absolute/path/to/tinystan-0.3.3
 dub run --root=examples/normal -- "$PWD/tests/models/normal.stan"
 dub run --root=tests/integration -- "$PWD/tests/models"
+python3 tests/interrupt/run.py tests/integration/dstan-integration
 ```
 
 `CompileOptions.root` takes precedence over `TINYSTAN`. Otherwise DStan looks in `.tinystan/tinystan-0.3.3` under your home directory (the user profile on Windows). Set `CompileOptions.make` or `MAKE` to select GNU Make. With empty `stancArgs`, compilation inherits `STANCFLAGS` from Make, including settings in `make/local`. A nonempty `stancArgs` replaces that setting. DStan supplies the TinyStan root as an include search directory by default.
@@ -90,6 +95,8 @@ $env:PATH = "$mingw;$env:PATH"
 $env:MAKEFLAGS = 'SHELL=C:/Progra~1/Git/usr/bin/sh.exe O=1'
 $tbb = "$env:TINYSTAN/stan/lib/stan_math/lib/tbb"
 dub run --root=examples/normal -- "$PWD/tests/models/normal.stan" $tbb $mingw
+dub build --root=tests/integration
+python tests/interrupt/run.py tests/integration/dstan-integration.exe $tbb $mingw
 ```
 
 Adjust the shell path to your Git installation. With the portable toolchain's default shell, the pinned TBB build failed at runtime-version detection. A previously compiled library can be loaded from a path containing spaces. WSL uses the Linux setup and produces an ELF shared object.
