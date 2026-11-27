@@ -10,9 +10,10 @@ version (Windows)
 {
     import core.sys.windows.windows;
     private __gshared HANDLE restored;
+    private __gshared DWORD expectedEvent;
     private extern(Windows) BOOL priorHandler(DWORD event) nothrow @nogc
     {
-        if (event != CTRL_BREAK_EVENT) return FALSE;
+        if (event != expectedEvent) return FALSE;
         SetEvent(restored);
         return TRUE;
     }
@@ -29,12 +30,19 @@ else version (Posix)
     }
 }
 
-void checkInterrupt(string library, int workers, string[] dirs)
+void checkInterrupt(string library, int workers, string event, string[] dirs)
 {
     enforce(workers == 1 || workers == 2);
-    auto model = Model(library, `{"workers":` ~ workers.to!string ~ "}", 1, dirs);
+    version (Windows) enforce(event == "Ctrl+C" || event == "Ctrl+Break");
+    else enforce(event == "SIGINT");
+    const ctrlBreak = event == "Ctrl+Break";
+    auto model = Model(library, `{"workers":` ~ workers.to!string ~ `,"ctrl_break":` ~
+        (ctrlBreak ? "1}" : "0}"), 1, dirs);
     version (Windows)
     {
+        expectedEvent = ctrlBreak ? CTRL_BREAK_EVENT : CTRL_C_EVENT;
+        // A launcher can pass on its ignore-Ctrl+C setting to the probe.
+        enforce(SetConsoleCtrlHandler(null, FALSE));
         restored = CreateEventW(null, TRUE, FALSE, null);
         enforce(restored);
         scope(exit) CloseHandle(restored);
@@ -62,13 +70,13 @@ void checkInterrupt(string library, int workers, string[] dirs)
     }
     catch (StanException e)
     {
-        writeln("workers=", workers, " category=", e.category, " message=", e.msg);
+        writeln("event=", event, " workers=", workers, " category=", e.category, " message=", e.msg);
         enforce(e.category == 2, "Expected TinyStan's interrupt category");
     }
     version (Windows)
     {
         enforce(WaitForSingleObject(restored, 0) == WAIT_TIMEOUT);
-        enforce(GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, 0));
+        enforce(GenerateConsoleCtrlEvent(expectedEvent, 0));
         enforce(WaitForSingleObject(restored, 5_000) == WAIT_OBJECT_0, "Prior console handler missing");
     }
     else

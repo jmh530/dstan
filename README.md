@@ -58,7 +58,7 @@ To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass 
 
 ## Interrupts
 
-During sampling, catch `StanException` and check `category == 2` to recognize a user interrupt. Local integration tests verified SIGINT on Ubuntu/WSL and Ctrl+Break in a native Windows console. Both single-chain and parallel two-chain runs restored the application's prior handler and allowed another run on the same model. The Python interrupt test driver builds a test model in a temporary directory and runs each case in a child process with a timeout. Use a writable temporary path without spaces, as for other TinyStan builds.
+During sampling, catch `StanException` and check `category == 2` to recognize a user interrupt. Local integration tests sent SIGINT on Ubuntu/WSL and programmatically generated Ctrl+C and Ctrl+Break events in private native Windows consoles. For each event, single-chain and parallel two-chain runs restored the application's prior handler and allowed another run on the same model. The Python interrupt test driver builds a test model in a temporary directory and runs each case in a child process with a timeout. Use a writable temporary path without spaces, as for other TinyStan builds.
 
 ## Build and run on Linux
 
