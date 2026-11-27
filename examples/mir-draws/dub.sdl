@@ -1,0 +1,4 @@
+name "dstan-mir-draws"
+targetType "executable"
+dependency "dstan" path="../.."
+dependency "mir-algorithm" version="~>3.22.5"

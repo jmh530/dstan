@@ -12,6 +12,7 @@
 **/.dub/
 **/dub.selections.json
 /examples/normal/dstan-normal*
+/examples/mir-draws/dstan-mir-draws*
 /tests/integration/dstan-integration*
 /tests/abi/dstan-abi*
 /tests/models/*.hpp
