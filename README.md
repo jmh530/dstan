@@ -56,6 +56,12 @@ Set `settings.maxTreeDepth` to cap tree growth for each NUTS transition. It acce
 
 To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass the slice to `model.sampleInto(buffer, settings)`. The returned count is measured in doubles. To reuse a compiled model, pass the path to its `_model.so` directly to `Model`. Model construction and sampling have separate seeds. The defaults use seed one for each.
 
+## Viewing draws with Mir
+
+The [Mir example](examples/mir-draws/source/columns.d) uses `fit.values.sliced(fit.shape)` to view the existing array as chains, saved draws and columns. Selecting one chain and a named column from `fit.savedWarmup` onward gives a posterior series with a stride of `fit.shape[2]` doubles. Writes through this view update the original draws. Only the example depends on mir-algorithm.
+
+Run the layout test with `dub test --root=examples/mir-draws`. To sample the normal model and print each chain's posterior mean, use the normal example command for your platform below with `--root=examples/mir-draws`.
+
 ## Interrupts
 
 During sampling, catch `StanException` and check `category == 2` to recognize a user interrupt. Local integration tests sent SIGINT on Ubuntu/WSL and programmatically generated Ctrl+C and Ctrl+Break events in private native Windows consoles. For each event, single-chain and parallel two-chain runs restored the application's prior handler and allowed another run on the same model. The Python interrupt test driver builds a test model in a temporary directory and runs each case in a child process with a timeout. Use a writable temporary path without spaces, as for other TinyStan builds.

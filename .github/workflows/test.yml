@@ -13,6 +13,11 @@ jobs:
         with:
           compiler: ${{ matrix.dc }}
       - run: dub test
+      - name: Build and test the Mir draws example
+        if: runner.os == 'Linux' && startsWith(matrix.dc, 'ldc-')
+        run: |
+          dub build --root=examples/mir-draws
+          dub test --root=examples/mir-draws
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows' && matrix.dc == 'ldc-1.43.0'
       - name: Verify Windows model runtime ownership and sampling ABI
