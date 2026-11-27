@@ -53,6 +53,8 @@ private void checkSampling(string[] paths)
     SampleOptions options;
     options.draws = 1;
     options.chains = 2;
+    double[1] backing;
+    options.initialInverseMetric = backing[0 .. 0];
     auto defaults = model.sample(options);
     enforce(defaults[0, 0, 9] == diagonal, "Expected diagonal metric by default");
     foreach (i, metric; [Metric.unit, Metric.diagonal, Metric.dense])
@@ -60,7 +62,13 @@ private void checkSampling(string[] paths)
         options.metric = metric;
         enforce(model.sample(options)[0, 0, 9] == [unit, diagonal, dense][i], "Wrong C ABI metric");
     }
-    import std.exception : assertThrown;
+    import std.exception : assertThrown, collectExceptionMsg;
+    auto tooLarge = options;
+    tooLarge.chains = int.max;
+    tooLarge.initialInverseMetric = [1.0];
+    auto message = collectExceptionMsg(model.requiredCount(tooLarge));
+    enforce(message == "Initial inverse metric dimensions exceed supported limits",
+        "Unexpected overflow diagnostic: " ~ message);
     auto oversized = Model(paths[0], `{"oversized":true}`);
     assertThrown(oversized.requiredCount(options)); // Dense at 46,341 free parameters.
     options.metric = cast(Metric) 99;

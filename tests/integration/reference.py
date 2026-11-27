@@ -37,6 +37,16 @@ if mode == "serial":
             suffix = "adapted" if adapt else "fixed"
             draws = np.fromfile(f"{prefix}.{metric.name.lower()}.{suffix}", dtype=np.float64)
             np.testing.assert_allclose(draws.reshape(2, 220, 10), reference.data, rtol=1e-10, atol=1e-10)
+            if metric == HMCMetric.UNIT:
+                continue
+            initial = (np.array([[0.5, 2.0], [1.5, 0.75]]) if metric == HMCMetric.DIAGONAL else
+                       np.array([[[0.5, 0.25], [0.25, 2.0]], [[1.5, -0.125], [-0.125, 0.75]]]))
+            reference = structured.sample(
+                "{}", num_chains=2, seed=321, num_warmup=200, num_samples=20, num_threads=1,
+                save_warmup=True, metric=metric, adapt=adapt, init_inv_metric=initial,
+            )
+            draws = np.fromfile(f"{prefix}.{metric.name.lower()}.{suffix}.initial", dtype=np.float64)
+            np.testing.assert_allclose(draws.reshape(2, 220, 10), reference.data, rtol=1e-10, atol=1e-10)
 
 # Compare each chain's complete draw matrix, including all diagnostic columns.
 for save_warmup, rows, suffix in [(False, 4000, ""), (True, 5000, ".warmup")]:

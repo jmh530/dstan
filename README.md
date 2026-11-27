@@ -34,7 +34,9 @@ Set `settings.stepSize` to choose the initial NUTS step size for all chains. It 
 
 Set `settings.metric` to choose the NUTS metric. During warmup, the default `Metric.diagonal` adapts a scale for each unconstrained parameter. `Metric.dense` adapts a full matrix to account for correlations and requires memory quadratic in the number of unconstrained parameters. `Metric.unit` keeps the identity metric and adapts only the step size.
 
-Set `settings.adaptDelta` to choose the target average acceptance probability (default `0.8`, strictly between zero and one). Set `settings.adapt = false` to keep the configured nominal step size and identity metric for all three choices. Warmup and `saveWarmup` still apply, and Stan ignores `adaptDelta` in this mode.
+The initial inverse mass matrix defaults to identity. To supply your own, set `settings.initialInverseMetric` to one contiguous block per chain, in chain order. For `p = model.numFreeParams`, each diagonal block contains `p` positive entries and each dense block contains a symmetric positive-definite `p × p` matrix flattened in column-major order. For example, with two chains and two unconstrained parameters, `[0.5, 2.0, 1.5, 0.75]` supplies diagonal entries `[0.5, 2.0]` to the first chain and `[1.5, 0.75]` to the second. Repeat the block for each chain to share a metric. Leave the slice empty for `Metric.unit`.
+
+Set `settings.adaptDelta` to choose the target average acceptance probability (default `0.8`, strictly between zero and one). Set `settings.adapt = false` to keep the configured nominal step size and initial metric fixed. Warmup and `saveWarmup` still apply, and Stan ignores `adaptDelta` in this mode.
 
 Set `settings.stepSizeJitter` to vary the step size between trajectories. The default is `0.0` (disabled). For example, `0.25` allows up to 25% variation above or below the current nominal step size. DStan accepts finite values in `[0, 1)` because the Stan 2.39.0 sampler bundled with TinyStan 0.3.3 silently ignores exactly `1.0`. [Stan issue #3462](https://github.com/stan-dev/stan/issues/3462) tracks the intended upper bound.
 

@@ -44,6 +44,13 @@ struct SampleOptions
     /// NUTS metric for all chains. Dense supports up to 46,340 unconstrained parameters in TinyStan 0.3.3.
     Metric metric = Metric.diagonal;
 
+    /// Initial inverse mass matrix on the unconstrained scale. Empty selects identity.
+    /// Supply one contiguous block per chain: p positive values for a diagonal metric,
+    /// or a symmetric positive-definite p-by-p matrix in column-major order for a dense
+    /// metric, where p is Model.numFreeParams. Entries must be finite. Keep the slice
+    /// readable and unchanged until sampling returns. Unit metrics require empty input.
+    const(double)[] initialInverseMetric;
+
     private int savedWarmup() const @safe pure nothrow @nogc
     {
         return saveWarmup ? warmup : 0;
@@ -107,7 +114,7 @@ struct Model
     @disable this(this);
     private Library lib;
     private TinyStanModel* handle;
-    private size_t numFreeParams;
+    private size_t freeParamCount;
     private immutable(string)[] columns;
 
     /**
@@ -126,7 +133,7 @@ struct Model
         TinyStanError* error;
         handle = lib.create(json.toStringz, seed, null, &error);
         if (!handle || error) fail(error, "TinyStan model construction failed");
-        numFreeParams = lib.numFreeParams(handle);
+        freeParamCount = lib.numFreeParams(handle);
         auto names = lib.names(handle).fromStringz.idup;
         columns = diagnostics;
         if (names.length) columns ~= names.split(",").idup;
@@ -150,6 +157,8 @@ struct Model
     @property int[3] stanVersion() const @safe pure nothrow @nogc { return lib.stanVersion; }
     /// Returns: D-owned diagnostic and flattened model column names in draw order.
     @property immutable(string)[] names() const @safe pure nothrow @nogc { return columns; }
+    /// Returns: Number of unconstrained real parameters per chain, used to size inverse metrics.
+    @property size_t numFreeParams() const @safe pure nothrow @nogc { return freeParamCount; }
 
     /**
     Params: options = NUTS sampling settings.
@@ -165,6 +174,19 @@ struct Model
         // TinyStan 0.3.3 squares this dimension in a signed int even with null metric buffers.
         if (options.metric == Metric.dense && numFreeParams > 46_340)
             throw new Exception("Dense NUTS metric exceeds 46,340 unconstrained parameters");
+        if (options.initialInverseMetric.length)
+        {
+            if (options.metric == Metric.unit)
+                throw new Exception("Unit metrics require an empty initial inverse metric");
+            // The C ABI takes a pointer without a length and uses a signed int for each block size.
+            const block = options.metric == Metric.dense ? numFreeParams * numFreeParams : numFreeParams;
+            if (options.chains <= 0 || block > int.max || block > size_t.max / double.sizeof / options.chains)
+                throw new Exception("Initial inverse metric dimensions exceed supported limits");
+            if (options.initialInverseMetric.length != options.chains * block)
+                throw new Exception("Supply exactly one initial inverse metric per chain");
+            if ((cast(size_t) options.initialInverseMetric.ptr) % double.alignof)
+                throw new Exception("Misaligned initial inverse metric");
+        }
         // A full depth-d transition takes 2^d - 1 leapfrog steps. Stan 2.39.0
         // accumulates that count in a signed 32-bit int.
         if (options.maxTreeDepth < 1 || options.maxTreeDepth > 31)
@@ -204,7 +226,8 @@ struct Model
     /**
     Params:
         output = Contiguous writable doubles, exclusively available during this call.
-            Writes the required prefix in chain/draw/column order. Saved warmup rows come first within each chain.
+            Writes the required prefix in chain/draw/column order. The prefix must be disjoint from
+            initialInverseMetric. Saved warmup rows come first within each chain.
             Failure may leave partial draws.
         options = NUTS sampling settings.
     Returns: Number of doubles written.
@@ -216,7 +239,18 @@ struct Model
         if (output.length < count) throw new Exception("Insufficient output buffer capacity");
         if ((cast(size_t) output.ptr) % double.alignof)
             throw new Exception("Misaligned output buffer");
-        runSampler(output[0 .. count], options);
+        auto draws = output[0 .. count];
+        if (options.initialInverseMetric.length)
+        {
+            import std.array : overlap;
+            import std.math : isFinite;
+            if (overlap(draws, options.initialInverseMetric).length)
+                throw new Exception("Initial inverse metric overlaps the draw buffer");
+            // Stan checks diagonal positivity and dense symmetry and positive definiteness.
+            foreach (value; options.initialInverseMetric)
+                if (!isFinite(value)) throw new Exception("Initial inverse metric entries must be finite");
+        }
+        runSampler(draws, options);
         return count;
     }
 
@@ -226,15 +260,18 @@ struct Model
     private void runSampler(scope double[] output, SampleOptions options) @trusted
     {
         import core.memory : GC;
-        // Root both borrowed buffers for the synchronous call. TinyStan copies
-        // the input into its per-chain contexts and releases the output writers.
+        // Root borrowed buffers for the synchronous call. TinyStan's metric readers
+        // hold pointers into the checked slice until they copy the values into Stan.
         struct Buffers
         {
             double* output;
             const(char)* inits;
+            const(double)* metric;
         }
         Buffers buffers;
         buffers.output = output.ptr;
+        if (options.initialInverseMetric.length)
+            buffers.metric = options.initialInverseMetric.ptr;
         if (options.initialValues.length)
             buffers.inits = encodeInitialValues(options.initialValues, lib.separator).toStringz;
         GC.addRange(&buffers, buffers.sizeof);
@@ -248,7 +285,7 @@ struct Model
                 if (options.chains > 1 || options.threads != 1)
                     lib.retainSamplingRuntime();
             status = lib.sample(handle, options.chains, buffers.inits, options.seed, 1, options.initRadius,
-                options.warmup, options.draws, cast(TinyStanMetric) options.metric, null,
+                options.warmup, options.draws, cast(TinyStanMetric) options.metric, buffers.metric,
                 options.adapt, options.adaptDelta, 0.05,
                 0.75, 10, 75, 50, 25, options.saveWarmup, options.stepSize, options.stepSizeJitter,
                 options.maxTreeDepth, 0, options.threads,
