@@ -57,6 +57,8 @@ TINYSTAN_PUBLIC int tinystan_sample(
     double *out, size_t out_size, double *stepsize_out, double *inv_metric_out,
     TinyStanError **err) {
     if (out_size < 10) return 1;
+    /* Even an empty slice with backing storage must select identity. */
+    if (init_inv_metric != NULL) return 1;
     out[9] = metric_choice;
     out[7] = adapt;
     out[8] = delta;

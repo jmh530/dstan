@@ -191,11 +191,13 @@ private void checkMetrics(ref Model model)
     options.draws = 20;
     options.saveWarmup = true;
     auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
+    assert(model.numFreeParams == 2);
     foreach (metric; [Metric.unit, Metric.diagonal, Metric.dense])
         foreach (adapt; [false, true])
         {
             options.metric = metric;
             options.adapt = adapt;
+            options.initialInverseMetric = null;
             auto fit = model.sample(options);
             assert(fit.shape == [2, 220, 10] && fit.savedWarmup == options.warmup);
             foreach (chain; 0 .. fit.shape[0])
@@ -203,7 +205,37 @@ private void checkMetrics(ref Model model)
                     assert(abs(fit[chain, row, 7] + fit[chain, row, 8] - fit[chain, row, 9]) < 1e-10);
             if (prefix.length)
                 write(prefix ~ "." ~ metric.to!string ~ (adapt ? ".adapted" : ".fixed"), fit.values);
+            if (metric == Metric.unit) continue;
+            options.initialInverseMetric = metric == Metric.diagonal
+                ? [0.5, 2.0, 1.5, 0.75]
+                : [0.5, 0.25, 0.25, 2.0, 1.5, -0.125, -0.125, 0.75];
+            auto initialized = model.sample(options);
+            assert(initialized.shape == fit.shape && initialized.values != fit.values);
+            if (prefix.length)
+                write(prefix ~ "." ~ metric.to!string ~ (adapt ? ".adapted" : ".fixed") ~ ".initial", initialized.values);
         }
+
+    options.metric = Metric.unit;
+    assertThrown(model.requiredCount(options));
+    options.metric = Metric.diagonal;
+    foreach (wrongLength; [2, 3, 5])
+    {
+        options.initialInverseMetric = new double[wrongLength];
+        assertThrown(model.requiredCount(options));
+    }
+    options.initialInverseMetric = [1.0, 1.0, 1.0, -0.5];
+    assertThrown!StanException(model.sample(options));
+    options.metric = Metric.dense;
+    options.initialInverseMetric = [1.0, 0, 0, 1, 1, 2, 2, 1];
+    assertThrown!StanException(model.sample(options));
+    options.initialInverseMetric = [1.0, 0, 0, 1, 1, 0.5, 0, 1];
+    assertThrown!StanException(model.sample(options));
+    options.initialInverseMetric = [1.0, 0, 0, 1, double.infinity, 0, 0, 1];
+    assertThrown(model.sample(options));
+    auto storage = new double[model.requiredCount(options)];
+    storage[$-8 .. $] = [1.0, 0, 0, 1, 1, 0, 0, 1];
+    options.initialInverseMetric = storage[$-8 .. $];
+    assertThrown(model.sampleInto(storage, options));
 }
 
 void main(string[] args)
