@@ -3,7 +3,7 @@
 The first milestone covers compilation, dynamic loading, JSON model construction and NUTS across one or more chains into D-owned or caller-provided storage.
 
 1. Qualify macOS and additional D compiler versions. Test GDC's declaration-import options before claiming support. Compare headers and repeat ABI, layout, lifetime and statistical tests before adding a TinyStan release.
-2. Extend interrupt qualification to native Windows Ctrl+C and macOS. Extend result-size checks for each algorithm. Evaluate user callbacks separately, including D runtime thread registration and exception containment.
+2. Extend interrupt qualification to macOS. Extend result-size checks for each algorithm. Evaluate user callbacks separately, including D runtime thread registration and exception containment.
 3. Add optional Mir views and verified JSON adapters as demand develops. Verify vector, matrix and array ordering against upstream fixtures. Reuse mir-stat for descriptive summaries. Investigate rank-normalized R-hat and bulk/tail ESS with Mir maintainers.
 4. Expose optimization, Pathfinder and Laplace using their individual contracts. Evaluate standalone generated quantities and explicit cancellation with TinyStan upstream. Checked size arithmetic in TinyStan would benefit all clients.
 5. Measure cold/warm compilation, loading, initialization, sampling, output access, allocations and peak memory independently. Compare repeated small fits and large outputs with the same-binary Python interface before comparing equivalent CmdStan runs.

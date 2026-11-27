@@ -286,11 +286,11 @@ void main(string[] args)
         compileModel(args[2], options);
         return;
     }
-    if (args.length >= 4 && args[1] == "--interrupt")
+    if (args.length >= 5 && args[1] == "--interrupt")
     {
         import interrupts : checkInterrupt;
         import std.conv : to;
-        checkInterrupt(args[2], args[3].to!int, args[4 .. $]);
+        checkInterrupt(args[2], args[3].to!int, args[4], args[5 .. $]);
         return;
     }
     if (args.length >= 3 && args[1] == "--parallel")
