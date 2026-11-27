@@ -199,10 +199,16 @@ private void checkMetrics(ref Model model)
             options.adapt = adapt;
             options.initialInverseMetric = null;
             auto fit = model.sample(options);
-            assert(fit.shape == [2, 220, 10] && fit.savedWarmup == options.warmup);
+            assert(fit.shape == [2, 220, model.names.length] && fit.savedWarmup == options.warmup);
+            assert(fit.names == model.names);
             foreach (chain; 0 .. fit.shape[0])
                 foreach (row; 0 .. fit.shape[1])
+                {
                     assert(abs(fit[chain, row, 7] + fit[chain, row, 8] - fit[chain, row, 9]) < 1e-10);
+                    // Stan varies the first index fastest for both generated quantities.
+                    foreach (i, expected; [11, 21, 12, 22, 13, 23, 101, 201, 102, 202, 103, 203])
+                        assert(fit[chain, row, 10 + i] == expected);
+                }
             if (prefix.length)
                 write(prefix ~ "." ~ metric.to!string ~ (adapt ? ".adapted" : ".fixed"), fit.values);
             if (metric == Metric.unit) continue;
@@ -252,7 +258,7 @@ private void checkAdaptationResults(ref Model model)
     {
         options.metric = metric;
         auto fit = model.sampleWithAdaptation(options);
-        assert(fit.draws.savedWarmup == 0 && fit.draws.shape == [2, 20, 10]);
+        assert(fit.draws.savedWarmup == 0 && fit.draws.shape == [2, 20, model.names.length]);
         assert(fit.draws.values == model.sample(options).values);
         assert(fit.stepSizes.length == options.chains);
         foreach (chain, step; fit.stepSizes)
@@ -340,7 +346,9 @@ void main(string[] args)
     assert(model.stanVersion == [2, 39, 0]);
     assert(model.names == ["lp__", "accept_stat__", "stepsize__", "treedepth__",
         "n_leapfrog__", "divergent__", "energy__", "theta"]);
-    assert(second.names[7 .. $] == ["x.1", "x.2", "total"]);
+    assert(second.names[7 .. $] == ["x.1", "x.2", "total",
+        "grid.1.1", "grid.2.1", "grid.1.2", "grid.2.2", "grid.1.3", "grid.2.3",
+        "points.1.1", "points.2.1", "points.1.2", "points.2.2", "points.1.3", "points.2.3"]);
     SampleOptions options;
     options.warmup = -1;
     assertThrown(model.requiredCount(options));

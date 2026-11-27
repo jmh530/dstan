@@ -32,13 +32,16 @@ if mode == "serial":
         base = f"{prefix}.{metric.name.lower()}"
         settings = dict(num_chains=2, seed=321, num_warmup=200, num_samples=20, num_threads=1, metric=metric)
         tuned = structured.sample("{}", save_inv_metric=True, **settings)
+        if metric == HMCMetric.UNIT:
+            np.testing.assert_array_equal(tuned["grid"][0, 0], [[11, 12, 13], [21, 22, 23]])
+            np.testing.assert_array_equal(tuned["points"][0, 0], [[101, 102, 103], [201, 202, 203]])
         np.testing.assert_allclose(np.fromfile(base + ".step-sizes"), tuned.stepsize, rtol=1e-10, atol=1e-10)
         initial_metric = None
         if metric != HMCMetric.UNIT:
             initial_metric = tuned.inv_metric
             np.testing.assert_allclose(np.fromfile(base + ".inverse-metric"), initial_metric.ravel(), rtol=1e-10, atol=1e-10)
         reused = structured.sample("{}", init_inv_metric=initial_metric, adapt=False, **settings)
-        np.testing.assert_allclose(np.fromfile(base + ".reused").reshape(2, 20, 10), reused.data, rtol=1e-10, atol=1e-10)
+        np.testing.assert_allclose(np.fromfile(base + ".reused").reshape(reused.data.shape), reused.data, rtol=1e-10, atol=1e-10)
         for adapt in (False, True):
             reference = structured.sample(
                 "{}", num_chains=2, seed=321, num_warmup=200, num_samples=20,
@@ -46,7 +49,7 @@ if mode == "serial":
             )
             suffix = "adapted" if adapt else "fixed"
             draws = np.fromfile(f"{prefix}.{metric.name.lower()}.{suffix}", dtype=np.float64)
-            np.testing.assert_allclose(draws.reshape(2, 220, 10), reference.data, rtol=1e-10, atol=1e-10)
+            np.testing.assert_allclose(draws.reshape(reference.data.shape), reference.data, rtol=1e-10, atol=1e-10)
             if metric == HMCMetric.UNIT:
                 continue
             initial = (np.array([[0.5, 2.0], [1.5, 0.75]]) if metric == HMCMetric.DIAGONAL else
@@ -56,7 +59,7 @@ if mode == "serial":
                 save_warmup=True, metric=metric, adapt=adapt, init_inv_metric=initial,
             )
             draws = np.fromfile(f"{prefix}.{metric.name.lower()}.{suffix}.initial", dtype=np.float64)
-            np.testing.assert_allclose(draws.reshape(2, 220, 10), reference.data, rtol=1e-10, atol=1e-10)
+            np.testing.assert_allclose(draws.reshape(reference.data.shape), reference.data, rtol=1e-10, atol=1e-10)
 
 # Compare each chain's complete draw matrix, including all diagnostic columns.
 for save_warmup, rows, suffix in [(False, 4000, ""), (True, 5000, ".warmup")]:
