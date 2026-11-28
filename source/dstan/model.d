@@ -116,6 +116,7 @@ class StanException : Exception
 
 private immutable string[] diagnostics = ["lp__", "accept_stat__", "stepsize__", "treedepth__",
     "n_leapfrog__", "divergent__", "energy__"];
+private immutable string[] optimizerDiagnostics = ["lp__", "converged__"];
 
 /// A scoped, noncopyable owner of one initialized Stan model and its library.
 struct Model
@@ -183,11 +184,10 @@ struct Model
         if (options.initialValues.length)
             options.initialValues = checkedJsonObject(options.initialValues);
 
-        static immutable string[] prefix = ["lp__", "converged__"];
-        auto names = prefix ~ columns[diagnostics.length .. $];
+        auto names = optimizerDiagnostics ~ columns[diagnostics.length .. $];
         auto values = new double[names.length];
         runOptimizer(values, options);
-        return OptimizationResult(values, names);
+        return OptimizationResult(values, names, options.jacobian);
     }
 
     // The pinned L-BFGS service writes one vector of this exact width. Both
@@ -210,6 +210,65 @@ struct Model
                 0, 1, buffers.output, output.length, &error);
         }
         if (status || error) fail(error, "TinyStan optimization failed");
+    }
+
+    /**
+    Draw from the Gaussian approximation around an optimized mode in unconstrained space.
+    Params:
+        mode = Complete optimizer result for this model and data, at a mode with
+            negative-definite Hessian. Its Jacobian setting selects the objective.
+            Keep its storage readable and unchanged until the call returns.
+        draws = Positive number of draws, defaulting to 1000.
+        seed = Draw and generated-quantity RNG seed, defaulting to one.
+    Returns: D-owned Draws of shape [1, draws, columns] with zero warmup.
+        Each row contains log_p__, log_q__ and the flattened constrained model outputs.
+    Throws: Exception for a closed model, incompatible layout or invalid dimensions.
+        StanException on upstream failure.
+    */
+    Draws laplaceSample(const OptimizationResult mode, int draws = 1000, uint seed = 1) @safe
+    {
+        if (!handle) throw new Exception("Closed Stan model");
+        auto outputs = columns[diagnostics.length .. $];
+        const first = optimizerDiagnostics.length;
+        if (mode.names.length != first + outputs.length || mode.values.length != mode.names.length ||
+            mode.names[0 .. first] != optimizerDiagnostics || mode.names[first .. $] != outputs)
+            throw new Exception("Laplace mode must contain the complete optimizer row for this model");
+        // Stan 2.39.0 accesses draw_vec(0) when emitting the first constrained output.
+        if (!outputs.length) throw new Exception("Laplace sampling requires a model output");
+        if (draws <= 0 || mode.names.length > size_t.max / double.sizeof / draws)
+            throw new Exception("Invalid Laplace draw buffer dimensions");
+        if (numFreeParams > int.max ||
+            (numFreeParams && numFreeParams > size_t.max / double.sizeof / numFreeParams))
+            throw new Exception("Laplace Hessian exceeds supported dimensions");
+        auto center = mode.values[first .. $];
+        if (cast(size_t) center.ptr % double.alignof)
+            throw new Exception("Misaligned Laplace mode");
+        static immutable string[] prefix = ["log_p__", "log_q__"];
+        auto names = prefix ~ outputs;
+        auto values = new double[names.length * draws];
+        runLaplace(center, mode.jacobian, draws, seed, values);
+        return Draws(values, names, [size_t(1), cast(size_t) draws, names.length]);
+    }
+
+    // TinyStan 0.3.3 copies the full flattened model width from center, including
+    // generated quantities. The fresh output holds exactly draws complete rows.
+    // Both slices stay rooted through the synchronous call; neither is retained.
+    private void runLaplace(scope const(double)[] center, bool jacobian, int draws,
+                            uint seed, scope double[] output) @trusted
+    {
+        import core.memory : GC;
+        struct Buffers { const(double)* center; double* output; }
+        auto buffers = Buffers(center.ptr, output.ptr);
+        GC.addRange(&buffers, buffers.sizeof);
+        scope(exit) GC.removeRange(&buffers);
+        TinyStanError* error;
+        int status;
+        synchronized (typeid(Model))
+        {
+            status = lib.laplace(handle, buffers.center, null, seed, draws, jacobian,
+                true, 0, 1, buffers.output, output.length, null, &error);
+        }
+        if (status || error) fail(error, "TinyStan Laplace sampling failed");
     }
 
     // Called after checking the dense dimension. TinyStan uses a signed int for

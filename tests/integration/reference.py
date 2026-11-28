@@ -31,6 +31,9 @@ if mode == "serial":
     for adjust, suffix in [(False, ".opt-lognormal"), (True, ".opt-lognormal-adjusted")]:
         reference = lognormal.optimize({}, init={"theta": 2}, seed=1, num_threads=1, jacobian=adjust)
         np.testing.assert_allclose(np.fromfile(prefix + suffix), reference.data, rtol=1e-10, atol=1e-10)
+        approx = lognormal.laplace_sample(reference, {}, seed=987, num_draws=20, num_threads=1, jacobian=adjust)
+        draws = np.fromfile(prefix + suffix.replace(".opt-", ".laplace-")).reshape(approx.data.shape)
+        np.testing.assert_allclose(draws, approx.data, rtol=1e-10, atol=1e-10)
 
     structured = tinystan.Model(str(Path(library).with_name("structured_model.so")))
     for label, optimized in [
@@ -39,6 +42,11 @@ if mode == "serial":
     ]:
         assert optimized.raw_parameters[:2] == ["lp__", "converged__"]
         np.testing.assert_allclose(np.fromfile(f"{prefix}.opt-{label}"), optimized.data, rtol=1e-10, atol=1e-10)
+        source, data, rows = (model, {"mu": 2.5}, 4000) if label == "normal" else (structured, {}, 20)
+        approx = source.laplace_sample(optimized, data, seed=987, num_draws=rows, num_threads=1, jacobian=False)
+        assert approx.raw_parameters[:2] == ["log_p__", "log_q__"]
+        draws = np.fromfile(f"{prefix}.laplace-{label}").reshape(approx.data.shape)
+        np.testing.assert_allclose(draws, approx.data, rtol=1e-10, atol=1e-10)
     for metric in (HMCMetric.UNIT, HMCMetric.DIAGONAL, HMCMetric.DENSE):
         base = f"{prefix}.{metric.name.lower()}"
         settings = dict(num_chains=2, seed=321, num_warmup=200, num_samples=20, num_threads=1, metric=metric)
