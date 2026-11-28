@@ -64,12 +64,13 @@ struct SampleOptions
     }
 }
 
-/// Settings for one L-BFGS run without the parameter-transform Jacobian adjustment.
+/// Settings for one L-BFGS run.
 struct OptimizeOptions
 {
     uint seed = 1;            /// RNG seed for initialization and generated quantities.
     string initialValues;     /// In-memory JSON object of constrained initial values. Empty uses Stan's random start.
     int maxIterations = 2000; /// Positive iteration limit. Stan may stop earlier on convergence.
+    bool jacobian = false;    /// Include the parameter-transform log Jacobian in the objective. Outputs remain on the constrained scale.
 }
 
 private string checkedJsonObject(string json) @safe
@@ -205,7 +206,7 @@ struct Model
         synchronized (typeid(Model))
         {
             status = lib.optimize(handle, buffers.inits, options.seed, 1, 2.0, lbfgs,
-                options.maxIterations, false, 5, 0.001, 1e-12, 1e4, 1e-8, 1e7, 1e-8,
+                options.maxIterations, options.jacobian, 5, 0.001, 1e-12, 1e4, 1e-8, 1e7, 1e-8,
                 0, 1, buffers.output, output.length, &error);
         }
         if (status || error) fail(error, "TinyStan optimization failed");

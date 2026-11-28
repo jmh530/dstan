@@ -316,6 +316,24 @@ private void checkOptimization(ref Model normal, ref Model structured)
     if (prefix.length) write(prefix ~ ".opt-structured", generated.values);
 }
 
+private void checkOptimizerJacobian(ref Model model)
+{
+    import std.file : write;
+    import std.math : exp;
+    auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
+    OptimizeOptions options;
+    options.initialValues = `{"theta":2}`;
+    foreach (adjust; [false, true])
+    {
+        options.jacobian = adjust;
+        auto fit = model.optimize(options);
+        assert(fit.names == ["lp__", "converged__", "theta"]);
+        assert(abs(fit.values[2] - (adjust ? 1.0 : exp(-1.0))) < 1e-6);
+        if (prefix.length)
+            write(prefix ~ (adjust ? ".opt-lognormal-adjusted" : ".opt-lognormal"), fit.values);
+    }
+}
+
 void main(string[] args)
 {
     if (args.length == 3 && args[1] == "--compile-interrupt")
@@ -413,6 +431,8 @@ void main(string[] args)
     assertThrown(model.sampleInto(buf[1 .. $], options));
     checkChains(model, 1);
     checkOptimization(model, second);
+    auto positive = Model(compileModel(buildPath(root, "lognormal.stan")), "{}", 1, dirs);
+    checkOptimizerJacobian(positive);
     // TBB keeps the first pool size. Start a new process to exercise two threads.
     import std.file : thisExePath;
     auto parallel = execute([thisExePath(), "--parallel", normal] ~ dirs);

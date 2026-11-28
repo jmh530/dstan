@@ -58,7 +58,7 @@ To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass 
 
 ## L-BFGS optimization
 
-`model.optimize()` maximizes the model's log density, including any priors in the model, with the parameter-transform Jacobian adjustment disabled. The normal model above has its maximum at `theta = 2.5`.
+`model.optimize()` maximizes the model's log density, including any priors in the model. The normal model above has its maximum at `theta = 2.5`.
 
 ```d
 OptimizeOptions options;
@@ -70,6 +70,8 @@ double thetaAtMode = mode.values[2];
 ```
 
 The defaults use seed one, random initialization and at most 2,000 iterations. Set `options.maxIterations` to change the limit. The first two values are the log objective and Stan's numeric termination code. Code 40 means the iteration limit was reached and the row contains the last iterate. The remaining entries are flattened constrained outputs, including transformed parameters and generated quantities.
+
+By default, optimization finds a mode of the density on the constrained parameter scale. Set `options.jacobian = true` to include the log Jacobian of the transformation from unconstrained to constrained parameters. For a positive `theta ~ lognormal(0, 1)`, the default returns `theta` near `exp(-1)`. With the adjustment, the density of `log(theta)` has its mode at zero, so the returned `theta` is near one. Both runs report parameters on their original constrained scale.
 
 ## Viewing draws with Mir
 
