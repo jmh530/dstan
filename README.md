@@ -1,6 +1,6 @@
 # DStan
 
-DStan runs Stan inference inside a D process. It can compile a Stan source file using TinyStan, open an existing model library, and sample one or more chains with NUTS. Draws land in contiguous D memory. The initial release target is TinyStan **0.3.3**, built with Stan **2.39.0**.
+DStan runs Stan inference inside a D process. It can compile a Stan source file using TinyStan, open an existing model library, sample one or more chains with NUTS, and optimize with L-BFGS. Results land in contiguous D memory. The initial release target is TinyStan **0.3.3**, built with Stan **2.39.0**.
 
 ```d
 import dstan;
@@ -17,7 +17,7 @@ assert(fit.names[7] == "theta");
 double firstTheta = fit[0, 0, 7];
 ```
 
-Chains and threads both default to one. Chain IDs start at one. Set the desired thread count on the first sampling call using a model library. TinyStan 0.3.3 initializes a persistent Stan thread pool, so a later request can leave the original limit in effect. Use a fresh process when you need a different limit. A threaded build accepts a positive count or `-1` for the available cores.
+Chains and threads both default to one. Chain IDs start at one. Set the desired thread count on the first inference call using a model library. Optimization requests one thread. TinyStan 0.3.3 initializes a persistent Stan thread pool, so a later request can leave the original limit in effect. Use a fresh process when you need a different limit. A threaded build accepts a positive count or `-1` for the available cores.
 
 Set `settings.saveWarmup = true` to include warmup draws. Within each chain, `fit.savedWarmup` is the index of the first posterior row. With 1,000 warmup iterations and the settings above, the shape is `[2, 5000, 8]` and posterior rows start at index 1,000.
 
@@ -55,6 +55,21 @@ Set `settings.stepSizeJitter` to vary the step size between trajectories. The de
 Set `settings.maxTreeDepth` to cap tree growth for each NUTS transition. It accepts integers from `1` through `31` and defaults to `10`. A full depth-31 transition uses `2^31 - 1` leapfrog steps, the largest count Stan 2.39.0 can represent in its signed 32-bit counter. The sampler can stop earlier. The `treedepth__` diagnostic reports the depth reached on each transition.
 
 To reuse storage, allocate `new double[model.requiredCount(settings)]` and pass the slice to `model.sampleInto(buffer, settings)`. The returned count is measured in doubles. To reuse a compiled model, pass the path to its `_model.so` directly to `Model`. Model construction and sampling have separate seeds. The defaults use seed one for each.
+
+## L-BFGS optimization
+
+`model.optimize()` maximizes the model's log density, including any priors in the model, with the parameter-transform Jacobian adjustment disabled. The normal model above has its maximum at `theta = 2.5`.
+
+```d
+OptimizeOptions options;
+options.seed = 321;
+options.initialValues = `{"theta": -2}`;
+auto mode = model.optimize(options);
+assert(mode.names == ["lp__", "converged__", "theta"]);
+double thetaAtMode = mode.values[2];
+```
+
+The defaults use seed one, random initialization and at most 2,000 iterations. Set `options.maxIterations` to change the limit. The first two values are the log objective and Stan's numeric termination code. Code 40 means the iteration limit was reached and the row contains the last iterate. The remaining entries are flattened constrained outputs, including transformed parameters and generated quantities.
 
 ## Viewing draws with Mir
 

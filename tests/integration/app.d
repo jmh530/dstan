@@ -283,6 +283,39 @@ private void checkAdaptationResults(ref Model model)
     assertThrown(model.sampleWithAdaptation(options));
 }
 
+private void checkOptimization(ref Model normal, ref Model structured)
+{
+    import std.file : write;
+    OptimizeOptions options;
+    options.seed = 321;
+    options.initialValues = `{"theta":-2}`;
+    auto fit = normal.optimize(options);
+    assert(fit.names == ["lp__", "converged__", "theta"]);
+    assert(fit.values.length == 3 && abs(fit.values[2] - 2.5) < 1e-6);
+    auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
+    if (prefix.length) write(prefix ~ ".opt-normal", fit.values);
+
+    options.maxIterations = 1;
+    auto limited = normal.optimize(options);
+    assert(limited.values[1] == 40);
+    options.maxIterations = 0;
+    assertThrown(normal.optimize(options));
+    options.maxIterations = 2000;
+    options.initialValues = "init.json";
+    assertThrown(normal.optimize(options));
+    options.initialValues = "{broken}";
+    assertThrown!StanException(normal.optimize(options));
+
+    auto generated = structured.optimize();
+    assert(generated.names[0 .. 2] == ["lp__", "converged__"]);
+    assert(generated.names[2 .. $] == structured.names[7 .. $]);
+    assert(generated.values.length == generated.names.length);
+    assert(abs(generated.values[2]) < 1e-6 && abs(generated.values[3]) < 1e-6);
+    assert(generated.values[4] == generated.values[2] + generated.values[3]);
+    assert(generated.values[5 .. $] == [11, 21, 12, 22, 13, 23, 101, 201, 102, 202, 103, 203]);
+    if (prefix.length) write(prefix ~ ".opt-structured", generated.values);
+}
+
 void main(string[] args)
 {
     if (args.length == 3 && args[1] == "--compile-interrupt")
@@ -379,6 +412,7 @@ void main(string[] args)
     assert(storage[0] == -123 && storage[$-1] == -123);
     assertThrown(model.sampleInto(buf[1 .. $], options));
     checkChains(model, 1);
+    checkOptimization(model, second);
     // TBB keeps the first pool size. Start a new process to exercise two threads.
     import std.file : thisExePath;
     auto parallel = execute([thisExePath(), "--parallel", normal] ~ dirs);
@@ -386,6 +420,7 @@ void main(string[] args)
     model.close();
     model.close();
     assertThrown(model.sample(options));
+    assertThrown(model.optimize());
     double mean = 0, variance = 0;
     foreach (i; 0 .. options.draws) mean += result[0, i, 7];
     mean /= options.draws;
