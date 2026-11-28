@@ -9,16 +9,17 @@ private extern(C) void callback(const(char)* message, size_t length, bool isErro
     observed = length == 2 && message[0 .. 2] == "ok" && isError;
 }
 
-private void checkCallback(string path)
+private void withSymbol(T)(string path, string symbol, scope void delegate(T) use)
 {
     version (Windows)
     {
         import core.sys.windows.windows;
+        import std.string : toStringz;
         import std.utf : toUTF16z;
         auto lib = LoadLibraryW(path.toUTF16z);
         enforce(lib);
         scope(exit) FreeLibrary(lib);
-        auto address = GetProcAddress(lib, "dstan_check_callback");
+        auto address = GetProcAddress(lib, symbol.toStringz);
     }
     else
     {
@@ -27,17 +28,80 @@ private void checkCallback(string path)
         auto lib = dlopen(path.toStringz, RTLD_NOW | RTLD_LOCAL);
         enforce(lib);
         scope(exit) dlclose(lib);
-        auto address = dlsym(lib, "dstan_check_callback");
+        auto address = dlsym(lib, symbol.toStringz);
     }
-    alias Check = extern(C) bool function(TinyStanMetric, size_t, uint, TINYSTAN_PRINT_CALLBACK);
     enforce(address);
-    assert((cast(Check)address)(diagonal, size_t.max, uint.max, &callback));
-    assert(observed);
+    use(cast(T) address);
+}
+
+private struct InferenceProbe
+{
+    import core.sync.semaphore : Semaphore;
+    Semaphore sampleEntered, optimizerStarting, optimizeEntered;
+    bool overlapped;
+}
+
+private extern(C) int inferenceEntry(void* context, bool optimizing) nothrow
+{
+    import core.time : msecs, seconds;
+    auto probe = cast(InferenceProbe*) context;
+    try
+    {
+        if (optimizing) probe.optimizeEntered.notify();
+        else
+        {
+            probe.sampleEntered.notify();
+            if (!probe.optimizerStarting.wait(10.seconds)) return 1;
+            // Keep the native sampler active while the other thread attempts optimize().
+            probe.overlapped = probe.optimizeEntered.wait(500.msecs);
+        }
+        return 0;
+    }
+    catch (Throwable) { return 1; } // Never unwind through the C fixture.
+}
+
+private void checkInferenceLock(string path)
+{
+    import core.sync.semaphore : Semaphore;
+    import core.thread : Thread;
+    import core.time : msecs, seconds;
+
+    alias Hook = typeof(&inferenceEntry);
+    alias SetHook = extern(C) void function(Hook, void*);
+    withSymbol!SetHook(path, "dstan_set_inference_probe", (setHook) {
+        auto optimizer = Model(path, `{"oversized":true}`); // Distinct native fixture handle.
+        InferenceProbe probe = {new Semaphore, new Semaphore, new Semaphore};
+        setHook(&inferenceEntry, &probe);
+        scope(exit) setHook(null, null);
+        auto sampler = new Thread({
+            auto model = Model(path);
+            SampleOptions options;
+            options.draws = 1;
+            model.sample(options);
+        });
+        {
+            sampler.start();
+            scope(exit) sampler.join();
+            enforce(probe.sampleEntered.wait(10.seconds), "Sampler did not enter the ABI fixture");
+            probe.optimizerStarting.notify();
+            optimizer.optimize();
+        }
+        enforce(!probe.overlapped, "Optimizer entered the ABI fixture while sampling was active");
+        enforce(probe.optimizeEntered.wait(0.msecs), "Optimizer did not enter the ABI fixture");
+    });
 }
 
 private void checkSampling(string[] paths)
 {
     auto model = Model(paths[0]);
+    auto mode = model.optimize();
+    enforce(mode.names == ["lp__", "converged__", "adapt", "delta", "metric"]);
+    enforce(mode.values == [0, 30, 1, 2000, 0], "Wrong C ABI optimizer defaults");
+    OptimizeOptions optimization;
+    optimization.seed = 123;
+    optimization.maxIterations = 17;
+    optimization.initialValues = `{"adapt":1}`;
+    enforce(model.optimize(optimization).values == [0, 30, 123, 17, 1], "Wrong explicit optimizer settings");
     version (Windows)
     {
         import core.sys.windows.windows;
@@ -140,7 +204,11 @@ void main(string[] args)
     version (Windows) enum expectedArgs = 6;
     else enum expectedArgs = 4;
     enforce(args.length == expectedArgs, "Pass the fixture library paths from the CI workflow");
-    checkCallback(args[1]);
+    alias Check = extern(C) bool function(TinyStanMetric, size_t, uint, TINYSTAN_PRINT_CALLBACK);
+    withSymbol!Check(args[1], "dstan_check_callback", (check) {
+        assert(check(diagonal, size_t.max, uint.max, &callback));
+        assert(observed);
+    });
     foreach (i, expected; ["Expected TinyStan 0.3.3", "tinystan_stan_version"])
     {
         try
@@ -151,4 +219,5 @@ void main(string[] args)
         catch (Exception e) { assert(e.msg.indexOf(expected) >= 0, e.msg); }
     }
     checkSampling(args[3 .. $]);
+    checkInferenceLock(args[3]);
 }

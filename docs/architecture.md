@@ -22,6 +22,8 @@ On Ubuntu/WSL, a process-directed SIGINT during sampling raised `StanException` 
 
 ## Output
 
+Sampling and optimization share one process-wide DStan lock while TinyStan installs its interrupt handler. L-BFGS requests one thread and writes a single final row. The row width is two diagnostic columns plus the number of flattened model names returned by the library. Stan 2.39.0 writes the log objective and numeric stopping code first. Its synchronous writer copies the complete row into a D-owned array, and DStan roots that array and the optional JSON initialization string until the call returns. The result remains usable after model closure.
+
 Metric sizing uses the unconstrained parameter count reported by the loaded model. TinyStan 0.3.3 squares that count in a signed 32-bit integer for a dense metric, even with null metric input and output buffers. DStan rejects dense sampling above 46,340 unconstrained parameters before allocating draws or entering the sampler. Available memory can limit dense sampling at much smaller sizes.
 
 The initial inverse metric borrows one contiguous input block per chain. DStan validates the exact length, alignment, finite entries and separation from the writable draw prefix, then roots the input for the synchronous call. Empty input passes a null pointer. TinyStan's per-chain readers copy the values into Stan during initialization. Stan validates diagonal positivity and dense symmetry and positive definiteness.

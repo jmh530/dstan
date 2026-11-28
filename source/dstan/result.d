@@ -1,5 +1,12 @@
-/// Shape and storage of draws in TinyStan's native order.
+/// Shape and storage of inference results in TinyStan's native order.
 module dstan.result;
+
+/// Final L-BFGS output, usable after closing the model.
+struct OptimizationResult
+{
+    double[] values;           /// One D-owned row, in the same order as names.
+    immutable(string)[] names; /// lp__, converged__, then flattened model output names.
+}
 
 /// D-owned draws and final per-chain tuning values from adaptive NUTS.
 struct AdaptationResult

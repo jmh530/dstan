@@ -64,6 +64,14 @@ struct SampleOptions
     }
 }
 
+/// Settings for one L-BFGS run without the parameter-transform Jacobian adjustment.
+struct OptimizeOptions
+{
+    uint seed = 1;            /// RNG seed for initialization and generated quantities.
+    string initialValues;     /// In-memory JSON object of constrained initial values. Empty uses Stan's random start.
+    int maxIterations = 2000; /// Positive iteration limit. Stan may stop earlier on convergence.
+}
+
 private string checkedJsonObject(string json) @safe
 {
     json = json.strip;
@@ -159,6 +167,49 @@ struct Model
     @property immutable(string)[] names() const @safe pure nothrow @nogc { return columns; }
     /// Returns: Number of unconstrained real parameters per chain, used to size inverse metrics.
     @property size_t numFreeParams() const @safe pure nothrow @nogc { return freeParamCount; }
+
+    /**
+    Params: options = L-BFGS settings, defaulting to OptimizeOptions.init.
+    Returns: One D-owned row containing the log objective, Stan's numeric termination
+        code and the flattened constrained model outputs, including generated quantities.
+        Code 40 indicates that the iteration limit was reached.
+    Throws: Exception for a closed model or invalid settings. StanException on upstream failure.
+    */
+    OptimizationResult optimize(OptimizeOptions options = OptimizeOptions.init) @safe
+    {
+        if (!handle) throw new Exception("Closed Stan model");
+        if (options.maxIterations <= 0) throw new Exception("Optimization iteration limit must be positive");
+        if (options.initialValues.length)
+            options.initialValues = checkedJsonObject(options.initialValues);
+
+        static immutable string[] prefix = ["lp__", "converged__"];
+        auto names = prefix ~ columns[diagnostics.length .. $];
+        auto values = new double[names.length];
+        runOptimizer(values, options);
+        return OptimizationResult(values, names);
+    }
+
+    // The pinned L-BFGS service writes one vector of this exact width. Both
+    // GC pointers stay rooted until its synchronous writer and JSON reader return.
+    private void runOptimizer(scope double[] output, OptimizeOptions options) @trusted
+    {
+        import core.memory : GC;
+        struct Buffers { double* output; const(char)* inits; }
+        Buffers buffers;
+        buffers.output = output.ptr;
+        if (options.initialValues.length) buffers.inits = options.initialValues.toStringz;
+        GC.addRange(&buffers, buffers.sizeof);
+        scope(exit) GC.removeRange(&buffers);
+        TinyStanError* error;
+        int status;
+        synchronized (typeid(Model))
+        {
+            status = lib.optimize(handle, buffers.inits, options.seed, 1, 2.0, lbfgs,
+                options.maxIterations, false, 5, 0.001, 1e-12, 1e4, 1e-8, 1e7, 1e-8,
+                0, 1, buffers.output, output.length, &error);
+        }
+        if (status || error) fail(error, "TinyStan optimization failed");
+    }
 
     // Called after checking the dense dimension. TinyStan uses a signed int for
     // each per-chain block and accepts pointers without buffer lengths.
@@ -324,7 +375,7 @@ struct Model
         TinyStanError* error;
         int status;
         // Upstream installs process-wide interrupt handlers. All DStan calls share this lock.
-        synchronized
+        synchronized (typeid(Model))
         {
             version (Windows)
                 if (options.chains > 1 || options.threads != 1)

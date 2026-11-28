@@ -28,6 +28,12 @@ if mode == "serial":
         assert math.isclose(reference, float(observed), abs_tol=1e-10)
 
     structured = tinystan.Model(str(Path(library).with_name("structured_model.so")))
+    for label, optimized in [
+        ("normal", model.optimize({"mu": 2.5}, init={"theta": -2}, seed=321, num_threads=1)),
+        ("structured", structured.optimize({}, seed=1, num_threads=1)),
+    ]:
+        assert optimized.raw_parameters[:2] == ["lp__", "converged__"]
+        np.testing.assert_allclose(np.fromfile(f"{prefix}.opt-{label}"), optimized.data, rtol=1e-10, atol=1e-10)
     for metric in (HMCMetric.UNIT, HMCMetric.DIAGONAL, HMCMetric.DENSE):
         base = f"{prefix}.{metric.name.lower()}"
         settings = dict(num_chains=2, seed=321, num_warmup=200, num_samples=20, num_threads=1, metric=metric)

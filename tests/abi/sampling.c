@@ -12,6 +12,16 @@ TINYSTAN_PUBLIC char tinystan_separator_char(void) { return '\x1e'; }
 
 struct TinyStanModel { int marker; size_t num_free_params; };
 
+/* Installed before the sampler thread starts and removed after it joins. */
+typedef int (*inference_hook)(void *, bool);
+static inference_hook on_entry;
+static void *probe_context;
+
+TINYSTAN_PUBLIC void dstan_set_inference_probe(inference_hook hook, void *context) {
+    on_entry = hook;
+    probe_context = context;
+}
+
 TINYSTAN_PUBLIC void tinystan_api_version(int *major, int *minor, int *patch) {
     *major = 0; *minor = 3; *patch = 3;
 }
@@ -46,6 +56,26 @@ TINYSTAN_PUBLIC TinyStanErrorType tinystan_get_error_type(const TinyStanError *e
 }
 TINYSTAN_PUBLIC void tinystan_destroy_error(TinyStanError *err) {}
 
+TINYSTAN_PUBLIC int tinystan_optimize(
+    const TinyStanModel *model, const char *init, unsigned int seed, unsigned int id,
+    double init_radius, TinyStanOptimizationAlgorithm algorithm, int iterations,
+    bool jacobian, int history, double alpha, double tol_obj, double tol_rel_obj,
+    double tol_grad, double tol_rel_grad, double tol_param, int refresh, int threads,
+    double *out, size_t count, TinyStanError **err) {
+    if (on_entry && on_entry(probe_context, true)) return 1;
+    if (count != 5 || id != 1 || init_radius != 2.0 || algorithm != lbfgs ||
+        jacobian || history != 5 || alpha != 0.001 || tol_obj != 1e-12 ||
+        tol_rel_obj != 1e4 || tol_grad != 1e-8 || tol_rel_grad != 1e7 ||
+        tol_param != 1e-8 || refresh != 0 || threads != 1)
+        return 1;
+    out[0] = 0;
+    out[1] = 30;
+    out[2] = seed;
+    out[3] = iterations;
+    out[4] = init == NULL ? 0 : strcmp(init, "{\"adapt\":1}") == 0 ? 1 : -1;
+    return 0;
+}
+
 TINYSTAN_PUBLIC int tinystan_sample(
     const TinyStanModel *model, size_t num_chains, const char *inits,
     unsigned int seed, unsigned int chain_id, double init_radius,
@@ -56,6 +86,7 @@ TINYSTAN_PUBLIC int tinystan_sample(
     double stepsize_jitter, int max_depth, int refresh, int num_threads,
     double *out, size_t out_size, double *stepsize_out, double *inv_metric_out,
     TinyStanError **err) {
+    if (on_entry && on_entry(probe_context, false)) return 1;
     if (out_size < 10) return 1;
     /* Even an empty slice with backing storage must select identity. */
     if (init_inv_metric != NULL) return 1;
