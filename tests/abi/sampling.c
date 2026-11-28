@@ -76,6 +76,21 @@ TINYSTAN_PUBLIC int tinystan_optimize(
     return 0;
 }
 
+TINYSTAN_PUBLIC int tinystan_laplace_sample(
+    const TinyStanModel *model, const double *mode, const char *json, unsigned int seed,
+    int draws, bool jacobian, bool calculate_lp, int refresh, int threads,
+    double *out, size_t count, double *hessian, TinyStanError **err) {
+    if (on_entry && on_entry(probe_context, true)) return 1;
+    if (!mode || json || !calculate_lp || refresh != 0 || threads != 1 || hessian ||
+        count != (size_t)draws * 5) return 1;
+    for (int i = 0; i < draws; ++i) {
+        out[5 * i] = seed;
+        out[5 * i + 1] = jacobian;
+        memcpy(out + 5 * i + 2, mode, 3 * sizeof(double));
+    }
+    return 0;
+}
+
 TINYSTAN_PUBLIC int tinystan_sample(
     const TinyStanModel *model, size_t num_chains, const char *inits,
     unsigned int seed, unsigned int chain_id, double init_radius,

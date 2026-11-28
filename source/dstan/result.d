@@ -6,6 +6,7 @@ struct OptimizationResult
 {
     double[] values;           /// One D-owned row, in the same order as names.
     immutable(string)[] names; /// lp__, converged__, then flattened model output names.
+    bool jacobian;             /// Parameter-transform adjustment used to optimize the objective.
 }
 
 /// D-owned draws and final per-chain tuning values from adaptive NUTS.

@@ -37,30 +37,30 @@ private void withSymbol(T)(string path, string symbol, scope void delegate(T) us
 private struct InferenceProbe
 {
     import core.sync.semaphore : Semaphore;
-    Semaphore sampleEntered, optimizerStarting, optimizeEntered;
+    Semaphore sampleEntered, contenderStarting, contenderEntered;
     bool overlapped;
 }
 
-private extern(C) int inferenceEntry(void* context, bool optimizing) nothrow
+private extern(C) int inferenceEntry(void* context, bool contender) nothrow
 {
     import core.time : msecs, seconds;
     auto probe = cast(InferenceProbe*) context;
     try
     {
-        if (optimizing) probe.optimizeEntered.notify();
+        if (contender) probe.contenderEntered.notify();
         else
         {
             probe.sampleEntered.notify();
-            if (!probe.optimizerStarting.wait(10.seconds)) return 1;
-            // Keep the native sampler active while the other thread attempts optimize().
-            probe.overlapped = probe.optimizeEntered.wait(500.msecs);
+            if (!probe.contenderStarting.wait(10.seconds)) return 1;
+            // Keep the native sampler active while the other thread attempts inference.
+            probe.overlapped = probe.contenderEntered.wait(500.msecs);
         }
         return 0;
     }
     catch (Throwable) { return 1; } // Never unwind through the C fixture.
 }
 
-private void checkInferenceLock(string path)
+private void checkInferenceLock(string path, string operation, scope void delegate() compete)
 {
     import core.sync.semaphore : Semaphore;
     import core.thread : Thread;
@@ -69,7 +69,6 @@ private void checkInferenceLock(string path)
     alias Hook = typeof(&inferenceEntry);
     alias SetHook = extern(C) void function(Hook, void*);
     withSymbol!SetHook(path, "dstan_set_inference_probe", (setHook) {
-        auto optimizer = Model(path, `{"oversized":true}`); // Distinct native fixture handle.
         InferenceProbe probe = {new Semaphore, new Semaphore, new Semaphore};
         setHook(&inferenceEntry, &probe);
         scope(exit) setHook(null, null);
@@ -83,11 +82,11 @@ private void checkInferenceLock(string path)
             sampler.start();
             scope(exit) sampler.join();
             enforce(probe.sampleEntered.wait(10.seconds), "Sampler did not enter the ABI fixture");
-            probe.optimizerStarting.notify();
-            optimizer.optimize();
+            probe.contenderStarting.notify();
+            compete();
         }
-        enforce(!probe.overlapped, "Optimizer entered the ABI fixture while sampling was active");
-        enforce(probe.optimizeEntered.wait(0.msecs), "Optimizer did not enter the ABI fixture");
+        enforce(!probe.overlapped, operation ~ " entered the ABI fixture while sampling was active");
+        enforce(probe.contenderEntered.wait(0.msecs), operation ~ " did not enter the ABI fixture");
     });
 }
 
@@ -102,7 +101,14 @@ private void checkSampling(string[] paths)
     optimization.maxIterations = 17;
     optimization.initialValues = `{"adapt":1}`;
     optimization.jacobian = true;
-    enforce(model.optimize(optimization).values == [1, 30, 123, 17, 1], "Wrong explicit optimizer settings");
+    auto adjusted = model.optimize(optimization);
+    enforce(adjusted.values == [1, 30, 123, 17, 1], "Wrong explicit optimizer settings");
+    auto approx = model.laplaceSample(adjusted, 2, 42);
+    enforce(approx.shape == [1, 2, 5] && approx.savedWarmup == 0);
+    enforce(approx.names == ["log_p__", "log_q__", "adapt", "delta", "metric"]);
+    enforce(approx.values == [42, 1, 123, 17, 1, 42, 1, 123, 17, 1]);
+    auto defaultApprox = model.laplaceSample(mode);
+    enforce(defaultApprox.shape == [1, 1000, 5] && defaultApprox.values[0 .. 2] == [1, 0]);
     version (Windows)
     {
         import core.sys.windows.windows;
@@ -220,5 +226,8 @@ void main(string[] args)
         catch (Exception e) { assert(e.msg.indexOf(expected) >= 0, e.msg); }
     }
     checkSampling(args[3 .. $]);
-    checkInferenceLock(args[3]);
+    auto contender = Model(args[3], `{"oversized":true}`); // Distinct native fixture handle.
+    auto mode = contender.optimize(); // Prepare the Laplace input before installing the hook.
+    checkInferenceLock(args[3], "Optimizer", { contender.optimize(); });
+    checkInferenceLock(args[3], "Laplace", { contender.laplaceSample(mode, 1); });
 }

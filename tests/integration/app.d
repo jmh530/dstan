@@ -294,6 +294,24 @@ private void checkOptimization(ref Model normal, ref Model structured)
     assert(fit.values.length == 3 && abs(fit.values[2] - 2.5) < 1e-6);
     auto prefix = environment.get("DSTAN_REFERENCE_DRAWS", "");
     if (prefix.length) write(prefix ~ ".opt-normal", fit.values);
+    auto approx = normal.laplaceSample(fit, 4000, 987);
+    assert(approx.names == ["log_p__", "log_q__", "theta"]);
+    assert(approx.shape == [1, 4000, 3] && approx.savedWarmup == 0);
+    double sum = 0, squares = 0;
+    foreach (i; 0 .. approx.shape[1])
+    {
+        auto theta = approx[0, i, 2];
+        sum += theta;
+        squares += theta * theta;
+    }
+    auto mean = sum / approx.shape[1];
+    assert(abs(mean - 2.5) < 0.1 && abs(sqrt(squares / approx.shape[1] - mean * mean) - 1) < 0.1);
+    if (prefix.length) write(prefix ~ ".laplace-normal", approx.values);
+    assertThrown(normal.laplaceSample(fit, 0));
+    assertThrown(structured.laplaceSample(fit));
+    auto invalid = fit;
+    invalid.names = ["lp__", "converged__", "other"];
+    assertThrown(normal.laplaceSample(invalid));
 
     options.maxIterations = 1;
     auto limited = normal.optimize(options);
@@ -314,6 +332,16 @@ private void checkOptimization(ref Model normal, ref Model structured)
     assert(generated.values[4] == generated.values[2] + generated.values[3]);
     assert(generated.values[5 .. $] == [11, 21, 12, 22, 13, 23, 101, 201, 102, 202, 103, 203]);
     if (prefix.length) write(prefix ~ ".opt-structured", generated.values);
+    auto wide = structured.laplaceSample(generated, 20, 987);
+    assert(wide.names[2 .. $] == generated.names[2 .. $]);
+    foreach (i; 0 .. wide.shape[1])
+    {
+        assert(wide[0, i, 4] == wide[0, i, 2] + wide[0, i, 3]);
+        assert(wide[0, i, 16] == 203);
+    }
+    if (prefix.length) write(prefix ~ ".laplace-structured", wide.values);
+    generated.values = generated.values[0 .. 4]; // Diagnostics and x only.
+    assertThrown(structured.laplaceSample(generated));
 }
 
 private void checkOptimizerJacobian(ref Model model)
@@ -329,8 +357,12 @@ private void checkOptimizerJacobian(ref Model model)
         auto fit = model.optimize(options);
         assert(fit.names == ["lp__", "converged__", "theta"]);
         assert(abs(fit.values[2] - (adjust ? 1.0 : exp(-1.0))) < 1e-6);
+        auto approx = model.laplaceSample(fit, 20, 987);
         if (prefix.length)
+        {
             write(prefix ~ (adjust ? ".opt-lognormal-adjusted" : ".opt-lognormal"), fit.values);
+            write(prefix ~ (adjust ? ".laplace-lognormal-adjusted" : ".laplace-lognormal"), approx.values);
+        }
     }
 }
 
@@ -441,6 +473,7 @@ void main(string[] args)
     model.close();
     assertThrown(model.sample(options));
     assertThrown(model.optimize());
+    assertThrown(model.laplaceSample(OptimizationResult.init));
     double mean = 0, variance = 0;
     foreach (i; 0 .. options.draws) mean += result[0, i, 7];
     mean /= options.draws;

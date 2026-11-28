@@ -1,6 +1,6 @@
 # DStan
 
-DStan runs Stan inference inside a D process. It can compile a Stan source file using TinyStan, open an existing model library, sample one or more chains with NUTS, and optimize with L-BFGS. Results land in contiguous D memory. The initial release target is TinyStan **0.3.3**, built with Stan **2.39.0**.
+DStan runs Stan inference inside a D process. It can compile a Stan source file using TinyStan, open an existing model library, sample one or more chains with NUTS, optimize with L-BFGS, and draw from a Laplace approximation. Results land in contiguous D memory. The initial release target is TinyStan **0.3.3**, built with Stan **2.39.0**.
 
 ```d
 import dstan;
@@ -72,6 +72,19 @@ double thetaAtMode = mode.values[2];
 The defaults use seed one, random initialization and at most 2,000 iterations. Set `options.maxIterations` to change the limit. The first two values are the log objective and Stan's numeric termination code. Code 40 means the iteration limit was reached and the row contains the last iterate. The remaining entries are flattened constrained outputs, including transformed parameters and generated quantities.
 
 By default, optimization finds a mode of the density on the constrained parameter scale. Set `options.jacobian = true` to include the log Jacobian of the transformation from unconstrained to constrained parameters. For a positive `theta ~ lognormal(0, 1)`, the default returns `theta` near `exp(-1)`. With the adjustment, the density of `log(theta)` has its mode at zero, so the returned `theta` is near one. Both runs report parameters on their original constrained scale.
+
+## Laplace approximation
+
+Pass the optimizer result from the same model and data to `laplaceSample`. Stan builds a Gaussian approximation in unconstrained space using the mode's Jacobian setting and transforms the draws back to the constrained scale. Use a local maximum with a negative-definite Hessian. An optimizer result that reached its iteration limit may need further optimization first.
+
+```d
+auto approx = model.laplaceSample(mode, 4000, 987); // draw count, RNG seed
+assert(approx.shape == [1, 4000, 3]);               // normal model
+assert(approx.names == ["log_p__", "log_q__", "theta"]);
+double firstTheta = approx[0, 0, 2];
+```
+
+The defaults are 1,000 draws and seed one. The leading dimension is one for compatibility with `Draws`. Each row starts with the unnormalized target and approximation log densities, followed by the model outputs. Laplace sampling requests one thread and requires memory quadratic in the number of unconstrained parameters for Stan's dense Hessian.
 
 ## Viewing draws with Mir
 
