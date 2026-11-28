@@ -27,6 +27,11 @@ if mode == "serial":
     for reference, observed in zip((theta.mean(), theta.std(ddof=1)), match.groups()):
         assert math.isclose(reference, float(observed), abs_tol=1e-10)
 
+    lognormal = tinystan.Model(str(Path(library).with_name("lognormal_model.so")))
+    for adjust, suffix in [(False, ".opt-lognormal"), (True, ".opt-lognormal-adjusted")]:
+        reference = lognormal.optimize({}, init={"theta": 2}, seed=1, num_threads=1, jacobian=adjust)
+        np.testing.assert_allclose(np.fromfile(prefix + suffix), reference.data, rtol=1e-10, atol=1e-10)
+
     structured = tinystan.Model(str(Path(library).with_name("structured_model.so")))
     for label, optimized in [
         ("normal", model.optimize({"mu": 2.5}, init={"theta": -2}, seed=321, num_threads=1)),

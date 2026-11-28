@@ -64,11 +64,11 @@ TINYSTAN_PUBLIC int tinystan_optimize(
     double *out, size_t count, TinyStanError **err) {
     if (on_entry && on_entry(probe_context, true)) return 1;
     if (count != 5 || id != 1 || init_radius != 2.0 || algorithm != lbfgs ||
-        jacobian || history != 5 || alpha != 0.001 || tol_obj != 1e-12 ||
+        history != 5 || alpha != 0.001 || tol_obj != 1e-12 ||
         tol_rel_obj != 1e4 || tol_grad != 1e-8 || tol_rel_grad != 1e7 ||
         tol_param != 1e-8 || refresh != 0 || threads != 1)
         return 1;
-    out[0] = 0;
+    out[0] = jacobian;
     out[1] = 30;
     out[2] = seed;
     out[3] = iterations;

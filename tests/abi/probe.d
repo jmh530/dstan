@@ -101,7 +101,8 @@ private void checkSampling(string[] paths)
     optimization.seed = 123;
     optimization.maxIterations = 17;
     optimization.initialValues = `{"adapt":1}`;
-    enforce(model.optimize(optimization).values == [0, 30, 123, 17, 1], "Wrong explicit optimizer settings");
+    optimization.jacobian = true;
+    enforce(model.optimize(optimization).values == [1, 30, 123, 17, 1], "Wrong explicit optimizer settings");
     version (Windows)
     {
         import core.sys.windows.windows;
